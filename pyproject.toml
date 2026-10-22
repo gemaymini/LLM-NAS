@@ -1,0 +1,33 @@
+[project]
+name = "llm-enas-pkb"
+version = "0.1.0"
+description = "LLM-ENAS-PKB: Large language model (DeepSeek) assisted evolutionary neural architecture search with population knowledge base enhancement — regression surrogate on NAS-Bench-201"
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+license = { text = "MIT" }
+authors = [{ name = "LLM-NAS" }]
+dependencies = [
+    "numpy>=1.24",
+    "requests>=2.31",
+    "python-dotenv>=1.0",
+    "nas-bench-201==2.1",
+    "torch>=2.1",
+    "gdown>=6.4.2",
+]
+
+[project.scripts]
+llm-enas-pkb = "llm_enas_pkb.main:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/llm_enas_pkb"]
+
+[tool.uv]
+package = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

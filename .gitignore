@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.venv/
+.env
+data/
+results/
+*.pth
+*.pt
+*.npz
+.pytest_cache/
+.ruff_cache/

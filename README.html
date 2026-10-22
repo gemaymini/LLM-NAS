@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <title>LLM-ENAS-PKB &mdash; Regression surrogate on NAS-Bench-201</title>
+            <style>
+/* From extension vscode.github */
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+.vscode-dark img[src$=\#gh-light-mode-only],
+.vscode-light img[src$=\#gh-dark-mode-only],
+.vscode-high-contrast:not(.vscode-high-contrast-light) img[src$=\#gh-light-mode-only],
+.vscode-high-contrast-light img[src$=\#gh-dark-mode-only] {
+	display: none;
+}
+
+</style>
+            
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/Microsoft/vscode/extensions/markdown-language-features/media/markdown.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/Microsoft/vscode/extensions/markdown-language-features/media/highlight.css">
+<style>
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe WPC', 'Segoe UI', system-ui, 'Ubuntu', 'Droid Sans', sans-serif;
+                font-size: 14px;
+                line-height: 1.6;
+            }
+        </style>
+        <style>
+.task-list-item {
+    list-style-type: none;
+}
+
+.task-list-item-checkbox {
+    margin-left: -20px;
+    vertical-align: middle;
+    pointer-events: none;
+}
+</style>
+<style>
+:root {
+  --color-note: #0969da;
+  --color-tip: #1a7f37;
+  --color-warning: #9a6700;
+  --color-severe: #bc4c00;
+  --color-caution: #d1242f;
+  --color-important: #8250df;
+}
+
+</style>
+<style>
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-note: #2f81f7;
+    --color-tip: #3fb950;
+    --color-warning: #d29922;
+    --color-severe: #db6d28;
+    --color-caution: #f85149;
+    --color-important: #a371f7;
+  }
+}
+
+</style>
+<style>
+.markdown-alert {
+  padding: 0.5rem 1rem;
+  margin-bottom: 16px;
+  color: inherit;
+  border-left: .25em solid #888;
+}
+
+.markdown-alert>:first-child {
+  margin-top: 0
+}
+
+.markdown-alert>:last-child {
+  margin-bottom: 0
+}
+
+.markdown-alert .markdown-alert-title {
+  display: flex;
+  font-weight: 500;
+  align-items: center;
+  line-height: 1
+}
+
+.markdown-alert .markdown-alert-title .octicon {
+  margin-right: 0.5rem;
+  display: inline-block;
+  overflow: visible !important;
+  vertical-align: text-bottom;
+  fill: currentColor;
+}
+
+.markdown-alert.markdown-alert-note {
+  border-left-color: var(--color-note);
+}
+
+.markdown-alert.markdown-alert-note .markdown-alert-title {
+  color: var(--color-note);
+}
+
+.markdown-alert.markdown-alert-important {
+  border-left-color: var(--color-important);
+}
+
+.markdown-alert.markdown-alert-important .markdown-alert-title {
+  color: var(--color-important);
+}
+
+.markdown-alert.markdown-alert-warning {
+  border-left-color: var(--color-warning);
+}
+
+.markdown-alert.markdown-alert-warning .markdown-alert-title {
+  color: var(--color-warning);
+}
+
+.markdown-alert.markdown-alert-tip {
+  border-left-color: var(--color-tip);
+}
+
+.markdown-alert.markdown-alert-tip .markdown-alert-title {
+  color: var(--color-tip);
+}
+
+.markdown-alert.markdown-alert-caution {
+  border-left-color: var(--color-caution);
+}
+
+.markdown-alert.markdown-alert-caution .markdown-alert-title {
+  color: var(--color-caution);
+}
+
+</style>
+        
+        </head>
+        <body class="vscode-body vscode-light">
+            <span id="markdown-mermaid" aria-hidden="true" data-config="{&quot;darkModeTheme&quot;:&quot;vscode&quot;,&quot;lightModeTheme&quot;:&quot;vscode&quot;,&quot;maxTextSize&quot;:50000,&quot;clickDrag&quot;:&quot;alt&quot;,&quot;showControls&quot;:&quot;onHoverOrFocus&quot;,&quot;resizable&quot;:true,&quot;maxHeight&quot;:&quot;&quot;}"></span>
+				<h1 id="llm-enas-pkb--regression-surrogate-on-nas-bench-201">LLM-ENAS-PKB — Regression surrogate on NAS-Bench-201</h1>
+<p>A faithful re-implementation of the <strong>regression-based</strong> LLM surrogate model from</p>
+<blockquote>
+<p>Fang, W., Xue, Y., Yuan, L., Hasan, M. K., Aurangzeb, K. (2026).
+<em>Large language model assisted evolutionary neural architecture search with
+population knowledge base enhancement.</em> Information Sciences, 735, 123110.
+(<a href="https://github.com/baigeixiaowang/LLM-ENAS-PKB">official code</a>)</p>
+</blockquote>
+<p>The paper replaces the expert-designed surrogate model in evolutionary NAS with a
+large language model (DeepSeek-R1). This repository implements the regression
+variant on <strong>NAS-Bench-201</strong> (<code>d = 30</code> input dimension, see Table 1 of the paper),
+driven by the <strong>DeepSeek official API</strong>.</p>
+<h2 id="what-is-implemented">What is implemented</h2>
+<table>
+<thead>
+<tr>
+<th>Component</th>
+<th>Module</th>
+<th>Paper</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>NAS-Bench-201 search space (6 edges × 5 ops)</td>
+<td><code>search_space.py</code></td>
+<td>Sec. 4.1</td>
+</tr>
+<tr>
+<td>Architecture information encoder (Eq. 6–7, 30-dim)</td>
+<td><code>encoder.py</code></td>
+<td>Sec. 3.4</td>
+</tr>
+<tr>
+<td>Population knowledge base selection</td>
+<td><code>pkb.py</code></td>
+<td>Sec. 3.3, Alg. 2</td>
+</tr>
+<tr>
+<td>Regression prompt builder</td>
+<td><code>prompts.py</code></td>
+<td>Sec. 3.2.1, Fig. 2</td>
+</tr>
+<tr>
+<td>DeepSeek official API client</td>
+<td><code>llm.py</code></td>
+<td>Table 1</td>
+</tr>
+<tr>
+<td>Regression predictor (ties the above together)</td>
+<td><code>predictor.py</code></td>
+<td>Sec. 3.2</td>
+</tr>
+<tr>
+<td>Evolutionary loop</td>
+<td><code>evolution.py</code></td>
+<td>Sec. 3.1, Alg. 1</td>
+</tr>
+<tr>
+<td>CLI entry point</td>
+<td><code>main.py</code></td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<h2 id="environment-uv">Environment (uv)</h2>
+<pre><code class="language-bash">uv <span class="hljs-built_in">sync</span>                 <span class="hljs-comment"># create .venv + install deps (incl. torch, nas-bench-201)</span>
+<span class="hljs-built_in">export</span> DEEPSEEK_API_KEY=sk-...   <span class="hljs-comment"># or put it in .env</span>
+uv run llm-enas-pkb --dataset cifar10 --iterations 30
+</code></pre>
+<p>Python is managed by <code>uv</code> (<code>requires-python &gt;=3.10,&lt;3.13</code>); no system Python is
+used.</p>
+<h2 id="deepseek-api">DeepSeek API</h2>
+<ul>
+<li>Endpoint: <code>https://api.deepseek.com/chat/completions</code> (OpenAI-compatible).</li>
+<li>Model: <code>deepseek-reasoner</code> (DeepSeek-R1, used in the paper) — set
+<code>LLMENAS_MODEL=deepseek-chat</code> to use DeepSeek-V3 instead.</li>
+<li>Auth: <code>DEEPSEEK_API_KEY</code> (or <code>LLMENAS_API_KEY_ENV</code> to point at another variable).</li>
+</ul>
+<p>Note: the paper reports a <code>repetition_penalty</code> of 1.8 (a HuggingFace parameter);
+the OpenAI-compatible API has no direct equivalent, so <code>frequency_penalty</code> (default
+0.0) is the closest analogue and is exposed via <code>LLMENAS_FREQUENCY_PENALTY</code>.</p>
+<h2 id="nas-bench-201-data">NAS-Bench-201 data</h2>
+<p><code>nas-bench-201</code> (import name <code>nas_201_api</code>) is installed from PyPI. The benchmark
+archive (<code>NAS-Bench-201-v1_1-096897.pth</code>, ~4.7 GB) must be obtained from the
+<a href="https://github.com/D-X-Y/NAS-Bench-201">official repo</a> (Google Drive; automated
+download is frequently blocked by Drive's quota limit, so manual download is
+recommended):</p>
+<pre><code class="language-bash"><span class="hljs-comment"># Put the file at either of these locations (auto-detected), or pass --data-path.</span>
+data/NAS-Bench-201-v1_1-096897.pth          <span class="hljs-comment"># project-local (recommended)</span>
+~/.torch/NAS-Bench-201-v1_1-096897.pth      <span class="hljs-comment"># legacy TORCH_HOME location</span>
+uv run llm-enas-pkb --data-path /abs/path/NAS-Bench-201-v1_1-096897.pth
+</code></pre>
+<p>A best-effort auto-download (via <code>gdown</code>) is attempted as a last resort
+(<code>scripts/download_data.py</code>).</p>
+<h2 id="running">Running</h2>
+<pre><code class="language-bash"><span class="hljs-comment"># Full evolution (regression surrogate, 30 generations, 100-query budget)</span>
+uv run llm-enas-pkb --dataset cifar10 --seed 0
+
+<span class="hljs-comment"># Quick smoke test without calling the API (deterministic pseudo-LLM)</span>
+uv run llm-enas-pkb --offline --iterations 3
+
+<span class="hljs-comment"># Predict a couple of candidate architectures from a small labelled archive</span>
+uv run python - &lt;&lt;<span class="hljs-string">&#x27;PY&#x27;</span>
+from llm_enas_pkb import Config
+from llm_enas_pkb.nasbench201 import NASBench201
+from llm_enas_pkb.predictor import RegressionPredictor
+
+cfg = Config(offline=True)          <span class="hljs-comment"># deterministic pseudo-LLM (no API key)</span>
+nb = NASBench201(cfg)
+pred = RegressionPredictor(cfg)
+
+pkb = [(0, 1, 2, 3, 4, 1), (4, 3, 2, 1, 0, 1), (1, 1, 1, 1, 1, 1)]
+pkb_vals = [nb.valid_acc(a) <span class="hljs-keyword">for</span> a <span class="hljs-keyword">in</span> pkb]   <span class="hljs-comment"># ground-truth labels</span>
+candidates = [(2, 2, 2, 2, 2, 2), (0, 0, 0, 0, 0, 0)]
+<span class="hljs-built_in">print</span>(pred.predict_archs(candidates, pkb, pkb_vals))
+PY
+</code></pre>
+<h2 id="key-hyperparameters-table-1">Key hyperparameters (Table 1)</h2>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Value</th>
+<th>Env override</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>model</td>
+<td><code>deepseek-reasoner</code></td>
+<td><code>LLMENAS_MODEL</code></td>
+</tr>
+<tr>
+<td>temperature</td>
+<td><code>0.3</code></td>
+<td><code>LLMENAS_TEMPERATURE</code></td>
+</tr>
+<tr>
+<td>top_p</td>
+<td><code>0.8</code></td>
+<td><code>LLMENAS_TOP_P</code></td>
+</tr>
+<tr>
+<td>input dim <code>d</code></td>
+<td><code>30</code></td>
+<td>—</td>
+</tr>
+<tr>
+<td>aggregation depth <code>k</code></td>
+<td><code>3</code></td>
+<td><code>LLMENAS_AGGREGATION_DEPTH</code></td>
+</tr>
+<tr>
+<td>iterations</td>
+<td><code>30</code></td>
+<td><code>LLMENAS_MAX_ITERATIONS</code></td>
+</tr>
+<tr>
+<td>population size</td>
+<td><code>20</code></td>
+<td><code>LLMENAS_POPULATION_SIZE</code></td>
+</tr>
+<tr>
+<td>crossover prob</td>
+<td><code>0.8</code></td>
+<td><code>LLMENAS_CROSSOVER_PROB</code></td>
+</tr>
+<tr>
+<td>PKB <code>alpha</code></td>
+<td><code>0.6</code></td>
+<td><code>LLMENAS_ALPHA</code></td>
+</tr>
+<tr>
+<td>query budget</td>
+<td><code>100</code></td>
+<td><code>LLMENAS_QUERY_BUDGET</code></td>
+</tr>
+</tbody>
+</table>
+
+            
+            
+        </body>
+        </html>
