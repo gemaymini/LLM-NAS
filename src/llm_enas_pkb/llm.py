@@ -1,8 +1,8 @@
 """DeepSeek official API client (OpenAI-compatible chat completions).
 
-The paper uses DeepSeek-R1 (``deepseek-reasoner`` on api.deepseek.com).  The
-client is intentionally thin: it posts to the chat-completions endpoint, retries
-on transient failures with exponential backoff, and returns the assistant text.
+The api.deepseek.com chat-completions endpoint is OpenAI-compatible.  The client
+is intentionally thin: it posts to the chat-completions endpoint, retries on
+transient failures with exponential backoff, and returns the assistant text.
 """
 
 from __future__ import annotations
@@ -108,8 +108,8 @@ class DeepSeekClient:
                 if resp.status_code == 200:
                     data = resp.json()
                     return data["choices"][0]["message"]["content"]
-                # Some models (e.g. deepseek-reasoner) may reject json_object mode;
-                # drop the parameter and retry immediately.
+                # Some reasoning models may reject json_object mode; drop the
+                # parameter and retry immediately.
                 if resp.status_code == 400 and self.config.json_mode and not dropped_response_format:
                     dropped_response_format = True
                     payload = self._payload(messages, use_response_format=False)

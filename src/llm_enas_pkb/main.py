@@ -25,7 +25,7 @@ def _build_parser() -> argparse.ArgumentParser:
         description="LLM-ENAS-PKB regression surrogate (DeepSeek API) on NAS-Bench-201.",
     )
     p.add_argument("--dataset", choices=["cifar10", "cifar100", "ImageNet16-120"], default=None)
-    p.add_argument("--model", default=None, help="DeepSeek model (deepseek-reasoner / deepseek-chat)")
+    p.add_argument("--model", default=None, help="DeepSeek model (deepseek-v4-pro / deepseek-flash)")
     p.add_argument("--iterations", type=int, default=None, dest="max_iterations")
     p.add_argument("--population-size", type=int, default=None)
     p.add_argument("--offspring-size", type=int, default=None)

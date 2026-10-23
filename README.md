@@ -39,8 +39,9 @@ used.
 ## DeepSeek API
 
 * Endpoint: `https://api.deepseek.com/chat/completions` (OpenAI-compatible).
-* Model: `deepseek-reasoner` (DeepSeek-R1, used in the paper) — set
-  `LLMENAS_MODEL=deepseek-chat` to use DeepSeek-V3 instead.
+* Model: `deepseek-v4-pro` (DeepSeek-V4 reasoning model). The paper used
+  `deepseek-reasoner` (DeepSeek-R1), which the official API has since retired.
+  Set `LLMENAS_MODEL=deepseek-flash` to use the faster V4.1-Flash model instead.
 * Auth: `DEEPSEEK_API_KEY` (or `LLMENAS_API_KEY_ENV` to point at another variable).
 
 Note: the paper reports a `repetition_penalty` of 1.8 (a HuggingFace parameter);
@@ -95,7 +96,7 @@ PY
 
 | Parameter | Value | Env override |
 |---|---|---|
-| model | `deepseek-reasoner` | `LLMENAS_MODEL` |
+| model | `deepseek-v4-pro` | `LLMENAS_MODEL` |
 | temperature | `0.3` | `LLMENAS_TEMPERATURE` |
 | top_p | `0.8` | `LLMENAS_TOP_P` |
 | input dim `d` | `30` | — |

@@ -53,13 +53,6 @@ class NASBench201:
         return self._download(candidate)
 
     @staticmethod
-    def _download(target: str) -> str:
-        from .download import download_nasbench201
-
-        logger.warning("NAS-Bench-201 archive not found; downloading to %s", target)
-        return download_nasbench201(target)
-
-    @staticmethod
     def _load_api(path: str):
         # torch>=2.6 defaults weights_only=True which cannot load this pickled
         # benchmark (it stores custom objects), so pass weights_only=False.
@@ -77,10 +70,16 @@ class NASBench201:
         """Ground-truth validation accuracy of ``arch`` in [0, 1]."""
         if arch not in self._cache:
             index = self.api.query_index_by_arch(arch_to_str(arch))
-            info = self.api.get_more_info(index, self.dataset, hp="200", is_random=False)
-            # The API reports percentages (0-100); normalise to [0, 1] to match
-            # the value range documented in the regression prompt.
+            dataset = (
+                "cifar10-valid"
+                if self.dataset == "cifar10"
+                else self.dataset
+            )
+            info = self.api.get_more_info(
+                index, dataset, hp="200", is_random=False
+            )
             self._cache[arch] = float(info["valid-accuracy"]) / 100.0
+
         return self._cache[arch]
 
     def test_acc(self, arch: tuple[int, ...]) -> float:

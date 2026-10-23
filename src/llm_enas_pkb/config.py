@@ -30,14 +30,15 @@ def _as_bool(value: str) -> bool:
 @dataclass
 class Config:
     # ------------------------------------------------------------------ LLM
-    # The paper uses DeepSeek-R1 ("deepseek-reasoner" on the official API).
-    # "deepseek-chat" (DeepSeek-V3) is a faster drop-in alternative.
-    model: str = "deepseek/deepseek-r1-0528"
-    # api_base: str = "https://api.deepseek.com"
+    # The paper uses DeepSeek-R1 ("deepseek-reasoner" on the official API), which
+    # has since been retired.  The official API now serves "deepseek-v4-pro"
+    # (reasoning) and "deepseek-flash" (fast); the former is the drop-in
+    # replacement for the paper's reasoning model.
+    model: str = "deepseek-flash"
+    api_base: str = "https://api.deepseek.com"
     # OpenAI-compatible base URL; the client appends ``/chat/completions``.
-    api_base: str = "https://openrouter.ai/api/v1"
     # Name of the environment variable holding the DeepSeek API key.
-    api_key_env: str = "DEEPSEEK_API_KEY"
+    api_key_env: str = ""
     # Sampling controls passed straight through to the completion API.
     temperature: float = 0.3
     top_p: float = 0.8
@@ -47,7 +48,7 @@ class Config:
     # prompt-contracted JSON output is not distorted.
     frequency_penalty: float = 0.0
     max_tokens: int = 4096
-    request_timeout: float = 300.0
+    request_timeout: float = 600.0
     max_retries: int = 6
     # Force the model to emit JSON (DeepSeek supports json_object mode).
     json_mode: bool = True
