@@ -58,6 +58,7 @@ def build_regression_prompt(
     candidate_vectors: (M, 30) encoded candidate architectures to predict.
     """
     lines: list[str] = [_TASK_HEADER]
+    n_candidates = len(candidate_vectors)
 
     # Part 3: the population knowledge base — one "<Architecture Information>;
     # <Value>;" line per labelled exemplar.
@@ -79,10 +80,15 @@ def build_regression_prompt(
     lines.append("2. Value range: 0.00 <= Value <= 1.00.")
     lines.append("3. Precision: each Value should have at most six decimal places.")
     lines.append("")
+    # State the exact candidate count explicitly: the model must emit one number per
+    # candidate, and without the count it frequently miscounts the dense vector list
+    # (returning 21 or 22 values for 20 candidates).
     lines.append(
-        "Output exactly one JSON object with a single key \"Value\" whose value is a "
-        "list of floats — one predicted Value per candidate architecture, in the same "
-        "order as the candidates listed below. Do not output anything besides this JSON."
+        f"There are exactly {n_candidates} candidate architectures listed below. Output "
+        f"exactly one JSON object with a single key \"Value\" whose value is a list of "
+        f"exactly {n_candidates} floats — one predicted Value per candidate architecture, "
+        f"in the same order as the candidates listed below. Do not output anything "
+        f"besides this JSON."
     )
     lines.append("")
 
