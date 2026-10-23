@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field, fields
+from datetime import datetime
 from typing import get_type_hints
 
 from dotenv import load_dotenv
@@ -37,7 +38,7 @@ class Config:
     # has since been retired.  The official API now serves "deepseek-v4-pro"
     # (reasoning) and "deepseek-flash" (fast); the former is the drop-in
     # replacement for the paper's reasoning model.
-    model: str = "deepseek-flash"
+    model: str = "deepseek-v4-pro"
     api_base: str = "https://api.deepseek.com"
     # OpenAI-compatible base URL; the client appends ``/chat/completions``.
     # Name of the environment variable holding the DeepSeek API key.
@@ -143,3 +144,17 @@ class Config:
                 # str, Optional[str] (``str | None``), or anything else: keep raw.
                 setattr(cfg, name, raw)
         return cfg
+
+    def auto_prompt_log_path(self) -> str:
+        """Generate a timestamped, hyperparameter-tagged prompt-log filename.
+
+        Embeds the core experiment hyperparameters plus a second-resolution
+        timestamp so separate runs write to distinct files instead of appending to
+        one shared log.  ``main`` applies this only when the user has not explicitly
+        set ``prompt_log_path`` via ``--prompt-log-path`` or ``LLMENAS_PROMPT_LOG_PATH``.
+        """
+        ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+        return (
+            f"llm_prompts_{self.dataset}_{self.model}"
+            f"_it{self.max_iterations}_pop{self.population_size}_seed{self.seed}_{ts}.log"
+        )

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 
 from .config import Config
@@ -89,6 +90,12 @@ def main(argv: list[str] | None = None) -> int:
         cfg.use_projection = False
     if args.thinking:
         cfg.thinking = True
+
+    # If the prompt-log path was not explicitly set (via CLI or env), auto-generate
+    # a timestamped, hyperparameter-tagged filename so separate runs don't share one
+    # log file.
+    if args.prompt_log_path is None and "LLMENAS_PROMPT_LOG_PATH" not in os.environ:
+        cfg.prompt_log_path = cfg.auto_prompt_log_path()
 
     # Map the level name to the logging module's constant and set a shared format.
     logging.basicConfig(
