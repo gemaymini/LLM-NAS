@@ -105,6 +105,12 @@ class Config:
     # this file (flushed on each write so entries appear in real time).  Empty or
     # None disables prompt logging.
     prompt_log_path: str | None = "llm_prompts.log"
+    # If set, a per-generation search log (current population, offspring, PKB
+    # exemplars, selected next population, ground-truth queried individuals) is
+    # appended to this file (flushed on each write, like the prompt log).  Empty
+    # or None disables it.  ``main`` auto-generates a timestamped filename when it
+    # is not explicitly set, mirroring ``prompt_log_path``.
+    search_log_path: str | None = "search.log"
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -156,5 +162,18 @@ class Config:
         ts = datetime.now().strftime("%Y%m%d-%H%M%S")
         return (
             f"llm_prompts_{self.dataset}_{self.model}"
+            f"_it{self.max_iterations}_pop{self.population_size}_seed{self.seed}_{ts}.log"
+        )
+
+    def auto_search_log_path(self) -> str:
+        """Generate a timestamped, hyperparameter-tagged search-log filename.
+
+        Mirrors ``auto_prompt_log_path`` so a run produces one search log beside
+        its prompt log; ``main`` applies this only when the user has not set
+        ``search_log_path`` via ``--search-log-path`` or ``LLMENAS_SEARCH_LOG_PATH``.
+        """
+        ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+        return (
+            f"search_{self.dataset}_{self.model}"
             f"_it{self.max_iterations}_pop{self.population_size}_seed{self.seed}_{ts}.log"
         )

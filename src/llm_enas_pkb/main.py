@@ -50,6 +50,8 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--log-level", default=None, choices=["DEBUG", "INFO", "WARNING", "ERROR"])
     p.add_argument("--prompt-log-path", default=None,
                    help="Append LLM prompts/responses to this file (empty string disables)")
+    p.add_argument("--search-log-path", default=None,
+                   help="Append per-generation search log to this file (empty string disables)")
     return p
 
 
@@ -77,6 +79,7 @@ def main(argv: list[str] | None = None) -> int:
         "seed": args.seed,
         "log_level": args.log_level,
         "prompt_log_path": args.prompt_log_path,
+        "search_log_path": args.search_log_path,
         "reasoning_effort": args.reasoning_effort,
     }
     for name, value in overrides.items():
@@ -96,6 +99,8 @@ def main(argv: list[str] | None = None) -> int:
     # log file.
     if args.prompt_log_path is None and "LLMENAS_PROMPT_LOG_PATH" not in os.environ:
         cfg.prompt_log_path = cfg.auto_prompt_log_path()
+    if args.search_log_path is None and "LLMENAS_SEARCH_LOG_PATH" not in os.environ:
+        cfg.search_log_path = cfg.auto_search_log_path()
 
     # Map the level name to the logging module's constant and set a shared format.
     logging.basicConfig(

@@ -26,6 +26,7 @@ from .config import Config
 from .nasbench201 import NASBench201
 from .pkb import select_pkb
 from .predictor import RegressionPredictor
+from .search_log import SearchLogger
 from .search_space import NUM_EDGES, NUM_OPS
 
 logger = logging.getLogger(__name__)
@@ -128,6 +129,9 @@ class EvolutionSearch:
         # Spread the remaining query budget evenly across the remaining generations.
         n_query_per_gen = max(0, (cfg.query_budget - queries) // max(1, cfg.max_iterations))
 
+        search_log = SearchLogger(cfg)
+        search_log.log_header(population, fitness)
+
         history: list[dict] = []
         for gen in range(cfg.max_iterations):
             # 1. offspring
@@ -145,6 +149,7 @@ class EvolutionSearch:
                 k_div=cfg.k_div,
                 selected_size=cfg.selected_size,
             )
+            pkb_selected = [pkb_archs[i] for i in pkb_idx]
 
             # 3-4. predict offspring fitness with the LLM surrogate
             cand_vectors = self.predictor.encoder.encode_batch(offspring)
@@ -161,12 +166,14 @@ class EvolutionSearch:
             # 6. ground-truth re-label a few of the best selected offspring
             new_members = [a for a in next_pop if a not in archive]
             new_members.sort(key=fitness.__getitem__, reverse=True)
+            queried_this_gen: list[tuple[int, ...]] = []
             for a in new_members[:n_query_per_gen]:
                 if queries < cfg.query_budget:
                     v = self.bench.valid_acc(a)
                     archive[a] = v
                     fitness[a] = v
                     queries += 1
+                    queried_this_gen.append(a)
 
             population = next_pop
             best_arch = max(archive, key=archive.get)
@@ -183,6 +190,20 @@ class EvolutionSearch:
             logger.info(
                 "gen %2d | queries %3d | best %.4f | mean-pop %.4f",
                 gen + 1, queries, archive[best_arch], mean_pop_true,
+            )
+            search_log.log_generation(
+                generation=gen + 1,
+                population=population,
+                offspring=offspring,
+                preds=preds,
+                next_pop=next_pop,
+                queried=queried_this_gen,
+                fitness=fitness,
+                archive=archive,
+                pkb_archs=pkb_selected,
+                queries=queries,
+                best_valid=archive[best_arch],
+                mean_pop_valid=mean_pop_true,
             )
 
         best_arch = max(archive, key=archive.get)
