@@ -82,6 +82,14 @@ class DeepSeekClient:
             "max_tokens": self.config.max_tokens,
             "stream": False,
         }
+        # DeepSeek ``deepseek-flash`` / ``deepseek-v4-pro`` default to thinking mode;
+        # disable it for plain (non-reasoning) behaviour, or enable it and tune
+        # ``reasoning_effort``.  Non-thinking mode is what a plain chat model offers.
+        if self.config.thinking:
+            payload["thinking"] = {"type": "enabled"}
+            payload["reasoning_effort"] = self.config.reasoning_effort
+        else:
+            payload["thinking"] = {"type": "disabled"}
         # Force JSON output when configured and permitted by the caller.
         if self.config.json_mode and use_response_format:
             payload["response_format"] = {"type": "json_object"}

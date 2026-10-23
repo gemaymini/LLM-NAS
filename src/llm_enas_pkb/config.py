@@ -55,6 +55,13 @@ class Config:
     max_retries: int = 6
     # Force the model to emit JSON (DeepSeek supports json_object mode).
     json_mode: bool = True
+    # DeepSeek ``deepseek-flash`` / ``deepseek-v4-pro`` default to *thinking*
+    # (reasoning) mode, whose reasoning content burns output tokens before the answer
+    # is produced and can exhaust ``max_tokens`` on large prompts, leaving ``content``
+    # empty.  We default to non-thinking mode (``{"type": "disabled"}`` in the request).
+    thinking: bool = False
+    # Only used when ``thinking`` is enabled: reasoning intensity (low/medium/high).
+    reasoning_effort: str = "medium"
 
     # ------------------------------------------------------------- Evolution
     max_iterations: int = 30

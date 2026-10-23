@@ -42,6 +42,10 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--offline", action="store_true", help="Use a deterministic pseudo-LLM (no API)")
     p.add_argument("--no-projection", action="store_true", dest="no_projection",
                    help="Disable the Eq. (6) projection in the encoder")
+    p.add_argument("--thinking", action="store_true",
+                   help="Enable DeepSeek thinking (reasoning) mode (default: disabled)")
+    p.add_argument("--reasoning-effort", default=None, choices=["low", "medium", "high"],
+                   help="Reasoning intensity, only used together with --thinking")
     p.add_argument("--log-level", default=None, choices=["DEBUG", "INFO", "WARNING", "ERROR"])
     p.add_argument("--prompt-log-path", default=None,
                    help="Append LLM prompts/responses to this file (empty string disables)")
@@ -72,6 +76,7 @@ def main(argv: list[str] | None = None) -> int:
         "seed": args.seed,
         "log_level": args.log_level,
         "prompt_log_path": args.prompt_log_path,
+        "reasoning_effort": args.reasoning_effort,
     }
     for name, value in overrides.items():
         if value is not None:
@@ -82,6 +87,8 @@ def main(argv: list[str] | None = None) -> int:
         cfg.offline = True
     if args.no_projection:
         cfg.use_projection = False
+    if args.thinking:
+        cfg.thinking = True
 
     # Map the level name to the logging module's constant and set a shared format.
     logging.basicConfig(
