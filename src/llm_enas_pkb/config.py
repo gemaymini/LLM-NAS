@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field, fields
+from typing import get_type_hints
 
 from dotenv import load_dotenv
 
@@ -111,22 +112,27 @@ class Config:
         # environment variables take precedence (``override=False``).
         load_dotenv()
         cfg = cls()
-        # Map field name -> Field object so each field's declared type is readable.
-        env_map = {f.name: f for f in fields(cls)}
-        for name, fld in env_map.items():
+        # Resolve real field types.  Because this module uses
+        # ``from __future__ import annotations``, each ``Field.type`` is a *string*
+        # (e.g. ``"int"``) rather than the type object, so ``is`` checks against
+        # ``int``/``bool``/``float`` would always be False and every override would
+        # be kept as a raw string (which then breaks e.g. ``max_tokens`` in the API
+        # payload).  ``get_type_hints`` evaluates the annotations back to real types.
+        type_hints = get_type_hints(cls)
+        for fld in fields(cls):
+            name = fld.name
             key = f"LLMENAS_{name.upper()}"
             if key not in os.environ:
                 continue
             raw = os.environ[key]
-            if fld.type is bool:
+            ftype = type_hints.get(name)
+            if ftype is bool:
                 setattr(cfg, name, _as_bool(raw))
-            elif fld.type is int:
+            elif ftype is int:
                 setattr(cfg, name, int(raw))
-            elif fld.type is float:
+            elif ftype is float:
                 setattr(cfg, name, float(raw))
-            elif fld.type in (str | None, None):
-                # Optional[str] (``str | None``) or plain ``str``: keep the raw string.
-                setattr(cfg, name, raw)
             else:
+                # str, Optional[str] (``str | None``), or anything else: keep raw.
                 setattr(cfg, name, raw)
         return cfg

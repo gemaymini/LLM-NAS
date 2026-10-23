@@ -148,7 +148,8 @@ class DeepSeekClient:
                 )
                 if resp.status_code == 200:
                     data = resp.json()
-                    message = data["choices"][0]["message"]
+                    choice = data["choices"][0]
+                    message = choice["message"]
                     content = message.get("content") or ""
                     # Reasoning models (e.g. deepseek-flash) may return an empty
                     # ``content`` when ``response_format=json_object`` is requested;
@@ -158,10 +159,19 @@ class DeepSeekClient:
                         payload = self._payload(messages, use_response_format=False)
                         logger.warning("empty content with json_object; retrying without response_format")
                         continue
-                    # Last resort: some models leave ``content`` blank and put the
-                    # answer in ``reasoning_content`` instead.
+                    # The final answer always lives in ``content`` (never in
+                    # ``reasoning_content``, which is the chain-of-thought).  An
+                    # empty ``content`` here means the reasoning model burned its
+                    # whole max_tokens budget on reasoning and was cut off before
+                    # producing the answer.
                     if not content.strip():
-                        content = message.get("reasoning_content") or ""
+                        finish = choice.get("finish_reason")
+                        raise DeepSeekError(
+                            f"Model returned empty content (finish_reason={finish!r}); the "
+                            "reasoning model likely exhausted max_tokens on chain-of-thought. "
+                            "Increase LLMENAS_MAX_TOKENS or use a non-reasoning model "
+                            "(e.g. deepseek-chat)."
+                        )
                     self._log_exchange(messages, content)
                     return content
                 # Some reasoning models may reject json_object mode; drop the

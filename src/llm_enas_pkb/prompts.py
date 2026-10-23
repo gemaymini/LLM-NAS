@@ -71,7 +71,10 @@ def build_regression_prompt(
     # Part 5: output constraints (valid JSON, value range, precision, exact shape).
     lines.append("")
     lines.append("Constraints:")
-    lines.append("1. Output must be valid JSON.")
+    # DeepSeek JSON mode requires the prompt to contain the literal word "json"
+    # (lowercase) plus a sample of the expected JSON structure; without it the
+    # API can return empty content.  Keep the lowercase keyword here.
+    lines.append("1. Output must be valid json.")
     lines.append('   Example outputs: {"Value": [0.926452, 0.875612]}')
     lines.append("2. Value range: 0.00 <= Value <= 1.00.")
     lines.append("3. Precision: each Value should have at most six decimal places.")
