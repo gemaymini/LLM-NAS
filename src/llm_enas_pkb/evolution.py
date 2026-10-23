@@ -112,6 +112,7 @@ class EvolutionSearch:
         cfg = self.config
         # Seeded RNG makes the entire evolutionary trajectory reproducible.
         rng = np.random.default_rng(cfg.seed)
+        logger.info("seed=%d (pass --seed to reproduce this run)", cfg.seed)
 
         # archive: arch -> true valid accuracy (ground-truth evaluated only).
         # fitness: arch -> current fitness (true value if archived, else LLM prediction).

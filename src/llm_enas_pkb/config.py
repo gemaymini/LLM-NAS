@@ -14,6 +14,7 @@ declared field types.
 from __future__ import annotations
 
 import os
+import random
 from dataclasses import dataclass, field, fields
 from datetime import datetime
 from typing import get_type_hints
@@ -96,7 +97,11 @@ class Config:
     n_init: int = 20  # ground-truth evaluations used to seed the archive
 
     # ---------------------------------------------------------------- Runtime
-    seed: int = 0
+    # Random seed.  Defaults to a random value so repeated runs explore different
+    # evolutionary trajectories; pass an explicit value (or set LLMENAS_SEED) to
+    # reproduce a run.  The resolved value is recorded in the search-log header and
+    # in the prompt/search log filenames, so any run can be reproduced afterwards.
+    seed: int = field(default_factory=lambda: random.randint(0, 2**31 - 1))
     # If True, run in "offline" mode: use a deterministic pseudo-LLM instead of
     # calling the DeepSeek API (useful for smoke-testing the pipeline).
     offline: bool = False

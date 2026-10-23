@@ -18,7 +18,7 @@ import numpy as np
 
 from .config import Config
 from .encoder import ArchitectureInformationEncoder
-from .llm import DeepSeekClient, _extract_json_object
+from .llm import DeepSeekClient, DeepSeekError, _extract_json_object
 from .prompts import build_regression_prompt
 
 logger = logging.getLogger(__name__)
@@ -50,7 +50,14 @@ class RegressionPredictor:
         pkb_values: np.ndarray,
         candidate_vectors: np.ndarray,
     ) -> np.ndarray:
-        """Predict a value in [0, 1] for each candidate, given PKB exemplars."""
+        """Predict a value in [0, 1] for each candidate, given PKB exemplars.
+
+        When the LLM returns a malformed response (unparseable JSON, missing
+        ``Value`` key, or the wrong number of predictions), the candidate count is
+        re-stated and the request re-issued instead of failing the whole search;
+        after the retries are exhausted the deterministic k-NN surrogate is used as
+        a last-resort fallback so a stubborn model can never abort the run.
+        """
         candidate_vectors = np.asarray(candidate_vectors, dtype=np.float64)
         n = len(candidate_vectors)
         if n == 0:
@@ -60,9 +67,37 @@ class RegressionPredictor:
         prompt = build_regression_prompt(pkb_vectors, pkb_values, candidate_vectors)
         if self.config.offline:
             preds = self._offline_predict(pkb_vectors, pkb_values, candidate_vectors)
-        else:
-            content = self.client.chat([{"role": "user", "content": prompt}])
-            preds = self._parse_predictions(content, n)
+            return self._validate(preds, n)
+
+        # Online: ask the LLM; on a malformed answer, append the bad response plus
+        # a corrective instruction and re-ask (multi-turn) rather than crashing.
+        messages = [{"role": "user", "content": prompt}]
+        last_err: Exception | None = None
+        for attempt in range(self.config.max_retries + 1):
+            content = self.client.chat(messages)
+            try:
+                preds = self._parse_predictions(content, n)
+            except (ValueError, DeepSeekError) as exc:
+                last_err = exc
+                messages.append({"role": "assistant", "content": content})
+                messages.append(
+                    {"role": "user", "content": self._correction_prompt(n, str(exc))}
+                )
+                logger.warning(
+                    "LLM response rejected (attempt %d/%d): %s; re-asking",
+                    attempt + 1, self.config.max_retries + 1, exc,
+                )
+                continue
+            return self._validate(preds, n)
+
+        # Last resort: fall back to the deterministic k-NN surrogate so a
+        # stubbornly malformed LLM response cannot abort the whole search.
+        logger.error(
+            "LLM could not return %d valid predictions after %d attempts (%s); "
+            "falling back to offline k-NN surrogate for this generation",
+            n, self.config.max_retries + 1, last_err,
+        )
+        preds = self._offline_predict(pkb_vectors, pkb_values, candidate_vectors)
         return self._validate(preds, n)
 
     def predict_archs(
@@ -105,6 +140,17 @@ class RegressionPredictor:
         if len(preds) != n:
             raise ValueError(f"Expected {n} predictions, got {len(preds)}")
         return np.clip(preds, 0.0, 1.0)
+
+    @staticmethod
+    def _correction_prompt(n: int, reason: str) -> str:
+        """Corrective re-ask message used when the LLM's answer was rejected."""
+        return (
+            f"Your previous answer was rejected because: {reason} "
+            f"There are exactly {n} candidate architectures in the list above. "
+            f"Output exactly one JSON object {{\"Value\": [...]}} whose list contains "
+            f"exactly {n} floats — one predicted value per candidate, in the same "
+            f"order they were listed. Do not output anything besides this JSON object."
+        )
 
     def _offline_predict(
         self,
