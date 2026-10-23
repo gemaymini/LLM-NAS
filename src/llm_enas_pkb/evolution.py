@@ -127,8 +127,13 @@ class EvolutionSearch:
             archive[a] = v
             fitness[a] = v
         queries = len(population)
-        # Spread the remaining query budget evenly across the remaining generations.
-        n_query_per_gen = max(0, (cfg.query_budget - queries) // max(1, cfg.max_iterations))
+        # No fixed per-generation quota.  Floor division (``//``) would waste up
+        # to ``max_iterations - 1`` queries (here 80 // 30 == 2 spends only 60 of
+        # the 80 left over), so the quota is re-derived each generation as the
+        # *ceiling* of the remaining budget over the remaining generations.
+        # Ceiling both spends the full budget and self-corrects: if a generation
+        # yields fewer new members than its quota, the unspent queries roll into
+        # the next generation automatically.
 
         search_log = SearchLogger(cfg)
         search_log.log_header(population, fitness)
@@ -167,8 +172,13 @@ class EvolutionSearch:
             # 6. ground-truth re-label a few of the best selected offspring
             new_members = [a for a in next_pop if a not in archive]
             new_members.sort(key=fitness.__getitem__, reverse=True)
+            # Ceiling of the remaining budget over the remaining generations;
+            # see the note above on why this is not a fixed floor-divided quota.
+            generations_left = cfg.max_iterations - gen
+            remaining = cfg.query_budget - queries
+            n_query_this_gen = (remaining + generations_left - 1) // generations_left
             queried_this_gen: list[tuple[int, ...]] = []
-            for a in new_members[:n_query_per_gen]:
+            for a in new_members[:n_query_this_gen]:
                 if queries < cfg.query_budget:
                     v = self.bench.valid_acc(a)
                     archive[a] = v
