@@ -148,7 +148,20 @@ class DeepSeekClient:
                 )
                 if resp.status_code == 200:
                     data = resp.json()
-                    content = data["choices"][0]["message"]["content"]
+                    message = data["choices"][0]["message"]
+                    content = message.get("content") or ""
+                    # Reasoning models (e.g. deepseek-flash) may return an empty
+                    # ``content`` when ``response_format=json_object`` is requested;
+                    # retry without it (mirrors the 400-rejection path below).
+                    if not content.strip() and self.config.json_mode and not dropped_response_format:
+                        dropped_response_format = True
+                        payload = self._payload(messages, use_response_format=False)
+                        logger.warning("empty content with json_object; retrying without response_format")
+                        continue
+                    # Last resort: some models leave ``content`` blank and put the
+                    # answer in ``reasoning_content`` instead.
+                    if not content.strip():
+                        content = message.get("reasoning_content") or ""
                     self._log_exchange(messages, content)
                     return content
                 # Some reasoning models may reject json_object mode; drop the
