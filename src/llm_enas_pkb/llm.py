@@ -12,6 +12,7 @@ import logging
 import os
 import re
 import time
+from datetime import datetime
 
 import requests
 
@@ -84,6 +85,44 @@ class DeepSeekClient:
             payload["response_format"] = {"type": "json_object"}
         return payload
 
+    def _log_exchange(
+        self,
+        messages: list[dict],
+        response: str | None = None,
+        error: Exception | None = None,
+    ) -> None:
+        """Append one prompt/response exchange to the prompt-log file.
+
+        Enabled by ``Config.prompt_log_path`` (empty or ``None`` disables).  The
+        file is opened, appended and flushed on every call so entries are visible
+        in real time (e.g. under ``tail -f``) even if the run is killed mid-way.
+        Failures to write the log are non-fatal: they are warned and ignored.
+        """
+        path = self.config.prompt_log_path
+        if not path:
+            return
+        try:
+            with open(path, "a", encoding="utf-8") as fh:
+                fh.write("=" * 78 + "\n")
+                fh.write(
+                    f"[{datetime.now().isoformat(timespec='seconds')}] "
+                    f"model={self.config.model}\n"
+                )
+                for msg in messages:
+                    role = msg.get("role", "?")
+                    fh.write(f"--- {role} ---\n")
+                    fh.write(f"{msg.get('content', '')}\n")
+                if response is not None:
+                    fh.write("--- assistant ---\n")
+                    fh.write(f"{response}\n")
+                elif error is not None:
+                    fh.write("--- ERROR ---\n")
+                    fh.write(f"{error}\n")
+                fh.write("\n")
+                fh.flush()
+        except OSError as exc:
+            logger.warning("Failed to write prompt log %s: %s", path, exc)
+
     def chat(self, messages: list[dict]) -> str:
         """Send a chat request and return the assistant text content.
 
@@ -107,7 +146,9 @@ class DeepSeekClient:
                 )
                 if resp.status_code == 200:
                     data = resp.json()
-                    return data["choices"][0]["message"]["content"]
+                    content = data["choices"][0]["message"]["content"]
+                    self._log_exchange(messages, content)
+                    return content
                 # Some reasoning models may reject json_object mode; drop the
                 # parameter and retry immediately.
                 if resp.status_code == 400 and self.config.json_mode and not dropped_response_format:
@@ -131,6 +172,7 @@ class DeepSeekClient:
                 logger.warning("DeepSeek request failed (%s); retrying in %.0fs", last_err, delay)
                 time.sleep(delay)
 
+        self._log_exchange(messages, error=last_err)
         raise DeepSeekError(f"DeepSeek request failed after retries: {last_err}")
 
     def chat_json(self, messages: list[dict]) -> dict:

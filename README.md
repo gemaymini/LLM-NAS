@@ -48,6 +48,20 @@ Note: the paper reports a `repetition_penalty` of 1.8 (a HuggingFace parameter);
 the OpenAI-compatible API has no direct equivalent, so `frequency_penalty` (default
 0.0) is the closest analogue and is exposed via `LLMENAS_FREQUENCY_PENALTY`.
 
+### Prompt logging
+
+Every prompt sent to the API and the text the model returns are appended in real
+time (one flush per exchange) to `llm_prompts.log` in the working directory, so
+you can inspect exactly what the model saw and produced:
+
+```bash
+tail -f llm_prompts.log   # watch entries land while a run is in progress
+```
+
+Disable it with `LLMENAS_PROMPT_LOG_PATH=""` (or `--prompt-log-path ""`), or
+redirect it with `LLMENAS_PROMPT_LOG_PATH=/tmp/prompts.log`. Failed writes are
+warned and ignored, so a missing/invalid path never aborts the run.
+
 ## NAS-Bench-201 data
 
 `nas-bench-201` (import name `nas_201_api`) is installed from PyPI. The benchmark
@@ -106,3 +120,4 @@ PY
 | crossover prob | `0.8` | `LLMENAS_CROSSOVER_PROB` |
 | PKB `alpha` | `0.6` | `LLMENAS_ALPHA` |
 | query budget | `100` | `LLMENAS_QUERY_BUDGET` |
+| prompt log | `llm_prompts.log` | `LLMENAS_PROMPT_LOG_PATH` |

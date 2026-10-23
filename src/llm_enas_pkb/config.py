@@ -90,6 +90,10 @@ class Config:
     # calling the DeepSeek API (useful for smoke-testing the pipeline).
     offline: bool = False
     log_level: str = "INFO"
+    # If set, every prompt sent to the LLM and the returned text are appended to
+    # this file (flushed on each write so entries appear in real time).  Empty or
+    # None disables prompt logging.
+    prompt_log_path: str | None = "llm_prompts.log"
 
     @classmethod
     def from_env(cls) -> "Config":

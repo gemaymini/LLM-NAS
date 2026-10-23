@@ -43,6 +43,8 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-projection", action="store_true", dest="no_projection",
                    help="Disable the Eq. (6) projection in the encoder")
     p.add_argument("--log-level", default=None, choices=["DEBUG", "INFO", "WARNING", "ERROR"])
+    p.add_argument("--prompt-log-path", default=None,
+                   help="Append LLM prompts/responses to this file (empty string disables)")
     return p
 
 
@@ -69,6 +71,7 @@ def main(argv: list[str] | None = None) -> int:
         "data_path": args.data_path,
         "seed": args.seed,
         "log_level": args.log_level,
+        "prompt_log_path": args.prompt_log_path,
     }
     for name, value in overrides.items():
         if value is not None:

@@ -213,13 +213,23 @@ used.</p>
 <h2 id="deepseek-api">DeepSeek API</h2>
 <ul>
 <li>Endpoint: <code>https://api.deepseek.com/chat/completions</code> (OpenAI-compatible).</li>
-<li>Model: <code>deepseek-reasoner</code> (DeepSeek-R1, used in the paper) — set
-<code>LLMENAS_MODEL=deepseek-chat</code> to use DeepSeek-V3 instead.</li>
+<li>Model: <code>deepseek-v4-pro</code> (DeepSeek-V4 reasoning model). The paper used
+<code>deepseek-reasoner</code> (DeepSeek-R1), which the official API has since retired.
+Set <code>LLMENAS_MODEL=deepseek-flash</code> to use the faster V4.1-Flash model instead.</li>
 <li>Auth: <code>DEEPSEEK_API_KEY</code> (or <code>LLMENAS_API_KEY_ENV</code> to point at another variable).</li>
 </ul>
 <p>Note: the paper reports a <code>repetition_penalty</code> of 1.8 (a HuggingFace parameter);
 the OpenAI-compatible API has no direct equivalent, so <code>frequency_penalty</code> (default
 0.0) is the closest analogue and is exposed via <code>LLMENAS_FREQUENCY_PENALTY</code>.</p>
+<h3 id="prompt-logging">Prompt logging</h3>
+<p>Every prompt sent to the API and the text the model returns are appended in real
+time (one flush per exchange) to <code>llm_prompts.log</code> in the working directory, so
+you can inspect exactly what the model saw and produced:</p>
+<pre><code class="language-bash"><span class="hljs-built_in">tail</span> -f llm_prompts.log   <span class="hljs-comment"># watch entries land while a run is in progress</span>
+</code></pre>
+<p>Disable it with <code>LLMENAS_PROMPT_LOG_PATH=&quot;&quot;</code> (or <code>--prompt-log-path &quot;&quot;</code>), or
+redirect it with <code>LLMENAS_PROMPT_LOG_PATH=/tmp/prompts.log</code>. Failed writes are
+warned and ignored, so a missing/invalid path never aborts the run.</p>
 <h2 id="nas-bench-201-data">NAS-Bench-201 data</h2>
 <p><code>nas-bench-201</code> (import name <code>nas_201_api</code>) is installed from PyPI. The benchmark
 archive (<code>NAS-Bench-201-v1_1-096897.pth</code>, ~4.7 GB) must be obtained from the
@@ -268,7 +278,7 @@ PY
 <tbody>
 <tr>
 <td>model</td>
-<td><code>deepseek-reasoner</code></td>
+<td><code>deepseek-v4-pro</code></td>
 <td><code>LLMENAS_MODEL</code></td>
 </tr>
 <tr>
@@ -315,6 +325,11 @@ PY
 <td>query budget</td>
 <td><code>100</code></td>
 <td><code>LLMENAS_QUERY_BUDGET</code></td>
+</tr>
+<tr>
+<td>prompt log</td>
+<td><code>llm_prompts.log</code></td>
+<td><code>LLMENAS_PROMPT_LOG_PATH</code></td>
 </tr>
 </tbody>
 </table>

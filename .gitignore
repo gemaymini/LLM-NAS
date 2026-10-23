@@ -7,5 +7,6 @@ results/
 *.pth
 *.pt
 *.npz
+*.log
 .pytest_cache/
 .ruff_cache/
