@@ -63,9 +63,11 @@ class DeepSeekClient:
         # DEEPSEEK_API_KEY name for compatibility.
         self.api_key = os.environ.get(config.api_key_env) or os.environ.get("DEEPSEEK_API_KEY")
         if not self.api_key:
+            env_name = config.api_key_env or "DEEPSEEK_API_KEY"
             raise DeepSeekError(
-                f"DeepSeek API key not found. Set the {config.api_key_env} environment "
-                "variable (see .env.example)."
+                f"DeepSeek API key not found. Set the {env_name} environment "
+                "variable, or add it to a .env file in the working directory "
+                "(see .env.example)."
             )
         self.url = config.api_base.rstrip("/") + "/chat/completions"
 

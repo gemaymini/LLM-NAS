@@ -16,6 +16,8 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field, fields
 
+from dotenv import load_dotenv
+
 
 def _as_bool(value: str) -> bool:
     """Parse a string environment variable into a boolean.
@@ -104,6 +106,10 @@ class Config:
         field's declared type (bool/int/float, otherwise kept as a string).  Any
         variable not set is silently ignored, leaving the dataclass default.
         """
+        # Load a .env file from the working directory (if present) so keys and
+        # overrides can live in a file rather than the shell.  Explicitly exported
+        # environment variables take precedence (``override=False``).
+        load_dotenv()
         cfg = cls()
         # Map field name -> Field object so each field's declared type is readable.
         env_map = {f.name: f for f in fields(cls)}
