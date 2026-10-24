@@ -17,13 +17,14 @@ dependencies = [
 
 [project.scripts]
 llm-enas-pkb = "llm_enas_pkb.main:main"
+random-search = "baselines.random_search:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/llm_enas_pkb"]
+packages = ["src/llm_enas_pkb", "src/baselines"]
 
 [tool.uv]
 package = true
