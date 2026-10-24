@@ -13,6 +13,7 @@ dependencies = [
     "nas-bench-201==2.1",
     "torch>=2.1",
     "gdown>=6.4.2",
+    "paramiko>=3.0",
 ]
 
 [project.scripts]
