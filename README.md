@@ -17,7 +17,7 @@ driven by the **DeepSeek official API**.
 | Component | Module | Paper |
 |---|---|---|
 | NAS-Bench-201 search space (6 edges × 5 ops) | `search_space.py` | Sec. 4.1 |
-| Architecture information encoder (Eq. 6–7, 30-dim) | `encoder.py` | Sec. 3.4 |
+| Architecture information encoder (Eq. 7, 30-dim) | `encoder.py` | Sec. 3.4 |
 | Population knowledge base selection | `pkb.py` | Sec. 3.3, Alg. 2 |
 | Regression prompt builder | `prompts.py` | Sec. 3.2.1, Fig. 2 |
 | DeepSeek official API client | `llm.py` | Table 1 |

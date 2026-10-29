@@ -1,14 +1,9 @@
 """Architecture information encoder (Sec. 3.4).
 
 The architecture is modelled as a directed acyclic graph ``G = (V, E)`` whose
-edges carry operator types.  Each edge operation is one-hot encoded and,
-optionally, projected into a dense feature space (Eq. 6):
-
-    E_op = O W,   O in {0,1}^{m x l},  W in R^{l x d}
-
-For NAS-Bench-201 ``m = 6`` edges and ``l = 5`` operators, so with ``d = l`` the
-edge embedding ``E_op`` has shape (6, 5) and flattening the six operation slots
-yields the 30-dimensional input vector reported in Table 1.
+edges carry operator types.  Each edge operation is one-hot encoded into an
+``(m, l)`` operator matrix ``O`` (``m = 6`` edges, ``l = 5`` operators for
+NAS-Bench-201).
 
 Topological information is injected through the degree-normalised neighbourhood
 aggregation of Eq. (7):
@@ -17,30 +12,22 @@ aggregation of Eq. (7):
 
 run for ``k`` iterations over the operation-slot graph (two slots are neighbours
 when their cell edges share a vertex).  After ``k`` iterations the node features
-are arranged in topological order and flattened into a fixed-length vector.
-
-The encoder is *training-free*: the projection matrix ``W`` is a fixed
-seed-initialised matrix and is never updated, keeping the encoding identical
-across runs so the LLM always observes a consistent feature space.
+are arranged in topological order and flattened into a fixed-length vector,
+yielding the 30-dimensional input vector reported in Table 1 (``6 edges x 5 ops``).
 """
 
 from __future__ import annotations
 
 import numpy as np
 
-from .search_space import INPUT_DIM, NUM_EDGES, NUM_OPS, one_hot_ops, slot_adjacency
+from .search_space import INPUT_DIM, one_hot_ops, slot_adjacency
 
 
 class ArchitectureInformationEncoder:
     """Deterministic, training-free encoder: architecture -> 30-dim vector."""
 
-    def __init__(self, *, depth: int = 3, use_projection: bool = True, seed: int = 0):
+    def __init__(self, *, depth: int = 3):
         self.depth = depth
-        self.use_projection = use_projection
-        # Seeded RNG makes the fixed projection matrix reproducible across runs.
-        rng = np.random.default_rng(seed)
-        # Fixed (never-trained) linear map of Eq. (6): R^{NUM_OPS x NUM_OPS}.
-        self._W = rng.standard_normal((NUM_OPS, NUM_OPS))
         # Adjacency of the six operation slots (the line graph of the cell DAG).
         self._adj = slot_adjacency()
         # Degree of each slot node (sum of in- and out-degrees; undirected here).
@@ -55,10 +42,8 @@ class ArchitectureInformationEncoder:
 
     def encode(self, arch: tuple[int, ...]) -> np.ndarray:
         """Encode ``arch`` (6 op indices) into a 30-dim float vector."""
-        # Eq. (6): one-hot operators -> (optional) dense edge features.
+        # One-hot operators -> edge feature matrix ``O`` of shape (6, 5).
         e_op = one_hot_ops(arch)  # (6, 5)
-        if self.use_projection:
-            e_op = e_op @ self._W  # (6, 5)
 
         # Eq. (7): degree-normalised neighbourhood aggregation over the slots.
         # h_v^(k+1) = h_v^(k) + sum_{u in N(v)} h_u^(k) / d_u, run `depth` times.

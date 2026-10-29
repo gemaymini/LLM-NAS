@@ -75,9 +75,6 @@ class Config:
     # -------------------------------------------------------------- Encoder
     aggregation_depth: int = 3  # k in Eq. (7)
     input_dim: int = 30  # d in Table 1 (6 edges x 5 ops for NAS-Bench-201)
-    # Apply the fixed linear projection of Eq. (6) on top of the one-hot
-    # operator encoding.  False -> pure one-hot + aggregation.
-    use_projection: bool = True
 
     # ------------------------------------------------------------------- PKB
     alpha: float = 0.6  # performance weight in Eq. (4)

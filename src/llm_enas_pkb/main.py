@@ -44,8 +44,6 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--run", type=int, default=1, dest="num_runs",
                    help="Number of repeated runs with different seeds (reports mean performance)")
     p.add_argument("--offline", action="store_true", help="Use a deterministic pseudo-LLM (no API)")
-    p.add_argument("--no-projection", action="store_true", dest="no_projection",
-                   help="Disable the Eq. (6) projection in the encoder")
     p.add_argument("--thinking", action="store_true",
                    help="Enable DeepSeek thinking (reasoning) mode (default: disabled)")
     p.add_argument("--reasoning-effort", default=None, choices=["low", "medium", "high"],
@@ -92,8 +90,6 @@ def main(argv: list[str] | None = None) -> int:
     # we only act when the flag was actually passed.
     if args.offline:
         cfg.offline = True
-    if args.no_projection:
-        cfg.use_projection = False
     if args.thinking:
         cfg.thinking = True
 

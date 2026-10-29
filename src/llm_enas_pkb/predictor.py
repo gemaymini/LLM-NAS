@@ -37,8 +37,6 @@ class RegressionPredictor:
         # space across components); otherwise construct the default one.
         self.encoder = encoder or ArchitectureInformationEncoder(
             depth=config.aggregation_depth,
-            use_projection=config.use_projection,
-            seed=config.seed,
         )
         # In offline mode there is no API client; the k-NN surrogate is used instead.
         self.client = None if config.offline else DeepSeekClient(config)

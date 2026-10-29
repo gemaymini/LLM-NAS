@@ -80,7 +80,7 @@ def str_to_arch(arch_str: str) -> tuple[int, ...]:
 
 
 def one_hot_ops(arch: tuple[int, ...]) -> np.ndarray:
-    """One-hot operator matrix ``O`` of shape (NUM_EDGES, NUM_OPS) (Eq. 6 input)."""
+    """One-hot operator matrix ``O`` of shape (NUM_EDGES, NUM_OPS)."""
     oh = np.zeros((NUM_EDGES, NUM_OPS), dtype=np.float64)
     oh[np.arange(NUM_EDGES), list(arch)] = 1.0
     return oh
