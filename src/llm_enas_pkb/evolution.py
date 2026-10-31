@@ -6,7 +6,8 @@ Each generation:
 2. select a compact, diverse PKB from the historical archive (line 7, Alg. 2),
 3. encode PKB + offspring and build the regression prompt (lines 9-13),
 4. predict offspring fitness with the LLM (lines 14-18),
-5. tournament-select the next population from ``P_t`` + offspring (line 24).
+5. retain the highest-fitness elites from ``P_t`` + offspring, then fill the
+   remaining next-population slots by binary tournament (extends line 24).
 
 Ground-truth benchmark lookups ("queries") are the expensive resource the
 surrogate is meant to save.  They are spent only to (a) seed the archive with the
@@ -34,6 +35,8 @@ logger = logging.getLogger(__name__)
 
 class EvolutionSearch:
     def __init__(self, config: Config, bench: NASBench201, predictor: RegressionPredictor):
+        if not 0.0 <= config.elite_ratio <= 1.0:
+            raise ValueError("elite_ratio must be between 0 and 1")
         self.config = config
         self.bench = bench
         self.predictor = predictor
@@ -107,6 +110,23 @@ class EvolutionSearch:
                 chosen.append(a)
         return chosen[:n]
 
+    def _select_next_population(self, candidates, fitness, rng: np.random.Generator) -> list:
+        """Keep elites first, then tournament-select distinct remaining survivors.
+
+        The elite quota is based on the configured population size, rounded
+        down.  Selection uses the current fitness (ground truth when available,
+        otherwise the surrogate prediction).  A small candidate pool is kept
+        whole rather than padded with duplicates.
+        """
+        cfg = self.config
+        candidates = list(dict.fromkeys(candidates))
+        target_size = min(cfg.population_size, len(candidates))
+        n_elite = min(int(cfg.population_size * cfg.elite_ratio), target_size)
+        elites = sorted(candidates, key=fitness, reverse=True)[:n_elite]
+        elite_set = set(elites)
+        remaining = [a for a in candidates if a not in elite_set]
+        return elites + self._tournament(remaining, fitness, target_size - n_elite, rng)
+
     # ------------------------------------------------------------ main loop
     def run(self) -> dict:
         cfg = self.config
@@ -160,14 +180,16 @@ class EvolutionSearch:
             # 3-4. predict offspring fitness with the LLM surrogate
             cand_vectors = self.predictor.encoder.encode_batch(offspring)
             preds = self.predictor.predict_values(
-                pkb_vectors[pkb_idx], pkb_values[pkb_idx], cand_vectors
+                pkb_vectors[pkb_idx], pkb_values[pkb_idx], cand_vectors,
+                generation=gen + 1,
             )
             for a, p in zip(offspring, preds):
                 fitness.setdefault(a, float(p))  # keep archived true value if present
 
-            # 5. tournament selection -> next population
-            union = list(dict.fromkeys(list(population) + offspring))
-            next_pop = self._tournament(union, fitness.__getitem__, cfg.population_size, rng)
+            # 5. keep elites from the merged pool, then fill by binary tournament
+            next_pop = self._select_next_population(
+                list(population) + offspring, fitness.__getitem__, rng,
+            )
 
             # 6. ground-truth re-label a few of the best selected offspring
             new_members = [a for a in next_pop if a not in archive]

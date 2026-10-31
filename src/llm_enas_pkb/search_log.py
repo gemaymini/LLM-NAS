@@ -5,12 +5,13 @@ Writes one human-readable section per generation recording:
 1. the current population ``P_t`` (arch + fitness, tagged ground-truth vs predicted),
 2. the PKB exemplars selected from the archive for this generation's prompt,
 3. the offspring produced by crossover + mutation (arch + LLM-predicted fitness),
-4. the tournament-selected next population ``P_{t+1}``,
+4. the next population ``P_{t+1}`` selected by elitism + binary tournament,
 5. the individuals that were ground-truth evaluated ("queried") this generation.
 
-Each architecture is printed in its official NAS-Bench-201 string encoding (see
-``search_space.arch_to_str``), so entries can be pasted directly into the
-benchmark API.  Fitness values are tagged ``[GT]`` when the individual was
+Each architecture is printed as six categorical operation IDs in canonical edge
+order, followed by its official NAS-Bench-201 string encoding (see
+``search_space.arch_to_str``), so the prompt encoding and benchmark lookup can
+both be checked.  Fitness values are tagged ``[GT]`` when the individual was
 ground-truth evaluated (i.e. lives in the archive) and ``[pred]`` when its value
 is an LLM prediction.
 
@@ -52,8 +53,8 @@ class SearchLogger:
 
     @staticmethod
     def _arch(arch, value, tag: str) -> str:
-        """Render one architecture as ``<arch-str>  val=<value>  [<tag>]``."""
-        return f"{arch_to_str(arch)}  val={float(value):.4f}  [{tag}]"
+        """Render the direct six-ID code, official string, and tagged fitness."""
+        return f"code={list(arch)}  {arch_to_str(arch)}  val={float(value):.4f}  [{tag}]"
 
     # ------------------------------------------------------------ sections
     def log_header(self, population, fitness) -> None:
@@ -65,7 +66,12 @@ class SearchLogger:
             (
                 f"dataset={cfg.dataset} model={cfg.model} seed={cfg.seed} "
                 f"iterations={cfg.max_iterations} pop={cfg.population_size} "
+                f"elite_ratio={cfg.elite_ratio} "
                 f"offspring={cfg.offspring_size} query_budget={cfg.query_budget}"
+            ),
+            (
+                "encoding=6 categorical operation IDs; "
+                "edge order=(0->1, 0->2, 1->2, 0->3, 1->3, 2->3)"
             ),
             _SUB,
             f"Initial population (seeded, {len(population)} individuals, all ground-truth queried):",
@@ -122,7 +128,8 @@ class SearchLogger:
 
         lines.append(_SUB)
         lines.append(
-            f"Next population P_{generation + 1} (tournament selection, {len(next_pop)}):"
+            f"Next population P_{generation + 1} "
+            f"(elitism + binary tournament, {len(next_pop)}):"
         )
         for i, a in enumerate(next_pop, 1):
             tag = "GT" if a in archive else "pred"

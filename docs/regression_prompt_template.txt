@@ -1,0 +1,237 @@
+1. Role Definition
+
+You are a regression surrogate for neural architecture search in NAS-Bench-201. Use the search-space definition, network implementation, and labelled examples provided below to estimate the validation accuracy of candidate architectures. Your predictions will guide selection in the current search generation.
+
+2. Task Definition
+
+Predict validation classification accuracy on {dataset} ({classes} classes, RGB input {image_size}x{image_size}) under the 200-epoch NAS-Bench-201 protocol.
+
+The prediction target, Value, is validation accuracy expressed as a fraction in [0, 1]: 0.90 means 90% of validation examples are classified correctly. Use this accuracy scale consistently for the supplied labels and all predictions.
+
+The Population Knowledge Base (PKB) pairs architecture codes with measured validation accuracies from benchmark models trained under this protocol on the specified dataset. Treat these pairs as labelled regression examples. Your task is to estimate the same validation metric for each candidate code in Section 6.
+
+3. Search Space Definition: Operation Descriptions and Code
+
+The searchable component is a normal cell represented by a directed acyclic graph with four nodes, numbered 0 through 3. Node 0 receives the cell input, and node 3 produces the cell output. The six possible edges are 0->1, 0->2, 1->2, 0->3, 1->3, and 2->3. Each edge independently selects one of five operations, giving 5^6 = 15625 architecture codes.
+
+Let h_i denote the feature tensor at node i, and let o_ij denote the operation selected for edge i->j. The cell computes:
+h_0 = cell input
+h_1 = o_01(h_0)
+h_2 = o_02(h_0) + o_12(h_1)
+h_3 = o_03(h_0) + o_13(h_1) + o_23(h_2)
+cell output = h_3
+Thus, nodes 1-3 sum their incoming edge outputs elementwise. All edge operations preserve channel count and spatial size, so these sums are well-defined.
+
+The operation IDs have the following fixed meanings:
+0 = none: Return zeros; the edge contributes nothing.
+1 = skip_connect: Pass the input unchanged.
+2 = nor_conv_1x1: ReLU -> 1x1 convolution -> BatchNorm; padding 0.
+3 = nor_conv_3x3: ReLU -> 3x3 convolution -> BatchNorm; padding 1.
+4 = avg_pool_3x3: 3x3 average pooling; padding 1; exclude padded zeros; no BatchNorm.
+All edge operations use stride 1. Convolutions have no bias. BatchNorm uses affine=True and track_running_stats=True. The following code defines these operations and validates the six-ID architecture codes used in the next section.
+```python
+from numbers import Integral
+from torch import nn
+
+OPS = ('none', 'skip_connect', 'nor_conv_1x1', 'nor_conv_3x3', 'avg_pool_3x3')
+EDGES = ((0, 1), (0, 2), (1, 2), (0, 3), (1, 3), (2, 3))
+
+def _as_arch(code) -> tuple[int, ...]:
+    code = tuple(code)
+    if len(code) != len(EDGES) or any(
+        isinstance(op, bool) or not isinstance(op, Integral) or not 0 <= op < len(OPS)
+        for op in code
+    ):
+        raise ValueError("Architecture must contain six integer operation IDs in [0, 4]")
+    return tuple(int(op) for op in code)
+
+class Zero(nn.Module):
+    def forward(self, x):
+        return x.mul(0.0)
+
+class ReLUConvBN(nn.Sequential):
+    def __init__(self, C_in: int, C_out: int, kernel_size: int, stride: int = 1):
+        super().__init__(
+            nn.ReLU(inplace=False),
+            nn.Conv2d(C_in, C_out, kernel_size, stride, kernel_size // 2, bias=False),
+            nn.BatchNorm2d(C_out, affine=True, track_running_stats=True),
+        )
+
+def make_operation(op_id: int, C: int) -> nn.Module:
+    """Build a normal-cell edge operation: equal channels and stride one."""
+    if isinstance(op_id, bool) or not isinstance(op_id, Integral):
+        raise ValueError("Operation ID must be an integer in [0, 4]")
+    if op_id == 0:
+        return Zero()
+    if op_id == 1:
+        return nn.Identity()
+    if op_id in (2, 3):
+        return ReLUConvBN(C, C, 1 if op_id == 2 else 3)
+    if op_id == 4:
+        return nn.AvgPool2d(3, stride=1, padding=1, count_include_pad=False)
+    raise ValueError("Operation ID must be an integer in [0, 4]")
+```
+
+4. Network Construction and Bidirectional Architecture Encoding
+
+Each architecture is represented directly by a list of six integers in [0, 4]. Each position specifies the operation on one fixed edge:
+[op_01, op_02, op_12, op_03, op_13, op_23]
+Position-to-edge mapping (zero-based): 0: 0->1; 1: 0->2; 2: 1->2; 3: 0->3; 4: 1->3; 5: 2->3.
+Operation IDs are categorical labels. Their numerical order or difference does not indicate operation similarity or expected accuracy. Interpret each ID together with its edge position and the operation definition in Section 3.
+
+For example, [0, 1, 2, 3, 4, 1] assigns none to 0->1, skip_connect to 0->2, nor_conv_1x1 to 1->2, nor_conv_3x3 to 0->3, avg_pool_3x3 to 1->3, and skip_connect to 2->3.
+
+This cell is repeated within a fixed classifier. C=16 is the initial channel count, and N=5 is the number of normal cells per stage. The network is:
+Conv3x3+BN stem
+-> 5 normal cells at 16 channels
+-> stride-2 residual block
+-> 5 normal cells at 32 channels
+-> stride-2 residual block
+-> 5 normal cells at 64 channels
+-> BN+ReLU
+-> global average pooling
+-> {classes}-class linear head.
+All 15 normal cells use the same six operation choices, with independent weights in each cell. Each residual block halves the spatial resolution and doubles the channel count. The stem, residual blocks, and classification head have fixed structures for this task; the six-ID code specifies only the operations inside the normal cells.
+
+The implementation below makes the connection between a code and its network explicit. arch_to_network builds a network with freshly initialized weights. network_to_code recovers the six IDs by inspecting the normal-cell operations and checks that all normal cells use the same code. The final example demonstrates a code-to-network-to-code round trip.
+
+This code continues the previous Python block and serves as a structural reference for prediction. The measured accuracy evidence is supplied separately in the PKB; the conversion example is an illustration of the encoding.
+```python
+class NASBench201Cell(nn.Module):
+    def __init__(self, code, C: int):
+        super().__init__()
+        self.ops = nn.ModuleList(make_operation(op, C) for op in _as_arch(code))
+
+    def forward(self, x):
+        nodes = [x]
+        for dst in range(1, 4):
+            nodes.append(sum(
+                self.ops[i](nodes[src])
+                for i, (src, target) in enumerate(EDGES) if target == dst
+            ))
+        return nodes[3]
+
+class ResNetBasicblock(nn.Module):
+    """Fixed stage transition; its operations are not part of the six-ID code."""
+
+    def __init__(self, C_in: int, C_out: int):
+        super().__init__()
+        self.main = nn.Sequential(
+            ReLUConvBN(C_in, C_out, 3, stride=2),
+            ReLUConvBN(C_out, C_out, 3),
+        )
+        self.shortcut = nn.Sequential(
+            nn.AvgPool2d(2, stride=2), nn.Conv2d(C_in, C_out, 1, bias=False)
+        )
+
+    def forward(self, x):
+        return self.main(x) + self.shortcut(x)
+
+class TinyNetwork(nn.Module):
+    def __init__(self, code, num_classes: int, C: int = 16, N: int = 5):
+        super().__init__()
+        code = _as_arch(code)
+        if any(isinstance(v, bool) or not isinstance(v, Integral) or v < 1
+               for v in (C, N, num_classes)):
+            raise ValueError("C, N, and num_classes must be positive integers")
+        self.stem = nn.Sequential(nn.Conv2d(3, C, 3, padding=1, bias=False), nn.BatchNorm2d(C))
+        cells = []
+        for stage in range(3):
+            channels = C * 2 ** stage
+            if stage:
+                cells.append(ResNetBasicblock(channels // 2, channels))
+            cells.extend(NASBench201Cell(code, channels) for _ in range(N))
+        self.cells = nn.ModuleList(cells)
+        self.lastact = nn.Sequential(nn.BatchNorm2d(C * 4), nn.ReLU(inplace=True))
+        self.global_pooling = nn.AdaptiveAvgPool2d(1)
+        self.classifier = nn.Linear(C * 4, num_classes)
+
+    def forward(self, x):
+        x = self.stem(x)
+        for cell in self.cells:
+            x = cell(x)
+        features = self.global_pooling(self.lastact(x)).flatten(1)
+        return features, self.classifier(features)
+
+def build_network(code, *, dataset: str = "cifar10", C: int = 16, N: int = 5) -> TinyNetwork:
+    """Decode six operation IDs into a freshly initialized classifier."""
+    classes = {"cifar10": 10, "cifar100": 100, "ImageNet16-120": 120}
+    if dataset not in classes:
+        raise ValueError(f"Unknown dataset: {dataset!r}")
+    return TinyNetwork(code, classes[dataset], C=C, N=N)
+
+def arch_to_network(code, *, dataset: str = "cifar10", C: int = 16, N: int = 5) -> TinyNetwork:
+    return build_network(code, dataset=dataset, C=C, N=N)
+
+def _operation_id(op: nn.Module) -> int:
+    """Recover the ID from the actual normal-cell module, not a saved genotype."""
+    if isinstance(op, Zero):
+        return 0
+    if isinstance(op, nn.Identity):
+        return 1
+    if isinstance(op, ReLUConvBN) and len(op) == 3:
+        relu, conv, bn = op
+        if (
+            isinstance(relu, nn.ReLU) and not relu.inplace
+            and isinstance(conv, nn.Conv2d) and isinstance(bn, nn.BatchNorm2d)
+            and conv.kernel_size in ((1, 1), (3, 3)) and conv.stride == (1, 1)
+            and conv.padding == tuple(k // 2 for k in conv.kernel_size)
+            and conv.dilation == (1, 1) and conv.groups == 1 and conv.bias is None
+            and conv.padding_mode == "zeros" and conv.in_channels == conv.out_channels
+            and bn.num_features == conv.out_channels and bn.affine and bn.track_running_stats
+        ):
+            return 2 if conv.kernel_size == (1, 1) else 3
+    if isinstance(op, nn.AvgPool2d) and op.kernel_size == 3 and op.stride == 1:
+        if (op.padding == 1 and not op.count_include_pad and not op.ceil_mode
+                and op.divisor_override is None):
+            return 4
+    raise ValueError(f"Unsupported normal-cell operation: {op!r}")
+
+def network_to_arch(network: nn.Module) -> tuple[int, ...]:
+    """Encode a cell or TinyNetwork made here; reject inconsistent cell choices."""
+    if isinstance(network, NASBench201Cell):
+        return _as_arch(_operation_id(op) for op in network.ops)
+    if not isinstance(network, TinyNetwork):
+        raise TypeError("Expected a NASBench201Cell or TinyNetwork built by this module")
+    codes = [network_to_arch(cell) for cell in network.cells
+             if isinstance(cell, NASBench201Cell)]
+    if not codes or any(code != codes[0] for code in codes[1:]):
+        raise ValueError("A six-ID architecture requires identical codes in all normal cells")
+    return codes[0]
+
+def network_to_code(network: nn.Module) -> list[int]:
+    return list(network_to_arch(network))
+
+code = [0, 1, 2, 3, 4, 1]
+network = arch_to_network(code, dataset='{dataset}')
+assert network_to_code(network) == code
+```
+
+5. Prediction Instructions for This Generation
+
+Generation: {generation}.
+Use the {n_pkb} PKB examples in Section 6 to predict Value for all {n_candidates} candidate entries in this generation. The generation number identifies the search round; base the predictions on the candidate structures and the supplied measured labels.
+
+If a candidate code appears in the PKB, use its supplied measured Value. For other candidates, use the PKB examples to relate architecture differences to validation-accuracy differences. Compare operation choices at corresponding edge positions, paths from the cell input to its output, and interactions among operations. Evaluate each code as a complete cell within the fixed network described in Section 4; the effect of an operation depends on its position and the surrounding operations.
+
+Use the observed labels to calibrate the accuracy scale and the size of predicted differences. The PKB is a selected subset of evaluated architectures, so candidate accuracies may fall outside its observed range when supported by the architecture evidence. When comparable examples are sparse or conflicting, make conservative estimates and avoid large adjustments based on weak evidence.
+
+The supplied PKB is the only source of measured labels for this prediction task. Estimate accuracy from the provided information without training or running networks, or retrieving external benchmark results. Assign identical predictions to repeated candidate codes and keep a separate output entry for each occurrence.
+
+6. Population Knowledge Base and Candidate Architecture Codes
+
+Each PKB entry contains an Architecture Code and its measured Value. Each candidate entry contains an Architecture Code with an empty Value field for you to estimate. Both lists use the same six-ID encoding. Entry numbers identify rows. Use candidate numbering to preserve output order, and use architecture codes and measured values as the evidence for prediction.
+
+Population Knowledge Base (measured validation accuracy):
+{pkb_entries}
+
+Candidate Architectures (predict in this order):
+{candidate_entries}
+
+7. Constraints
+
+Return only a valid JSON object with the single key "Value".
+"Value" must be a list of exactly {n_candidates} numbers in candidate order, including repeated candidates.
+The first number must correspond to Candidate 1, the second to Candidate 2, and so on. Preserve this order and include every candidate occurrence.
+Each number must be finite, between 0 and 1 inclusive, with at most six decimal places.
+Return numeric accuracy estimates on the scale defined in Section 2. Exclude explanations, Markdown fences, candidate codes, and additional keys from the response.

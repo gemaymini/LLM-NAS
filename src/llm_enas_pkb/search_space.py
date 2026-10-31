@@ -37,8 +37,8 @@ EDGES: tuple[tuple[int, int], ...] = (
 NUM_EDGES: int = len(EDGES)
 NUM_NODES: int = 4  # node 0 = input, nodes 1-3 = intermediate (output is implicit)
 
-# Encoder input dimension d = NUM_EDGES * NUM_OPS = 30 (matches Table 1).
-INPUT_DIM: int = NUM_EDGES * NUM_OPS
+# The input contains one categorical operation ID for each canonical edge.
+INPUT_DIM: int = NUM_EDGES
 
 
 def random_arch(rng: np.random.Generator) -> tuple[int, ...]:
@@ -47,16 +47,24 @@ def random_arch(rng: np.random.Generator) -> tuple[int, ...]:
 
 
 def is_valid_arch(arch) -> bool:
-    """Return True if ``arch`` is a well-formed 6-tuple of valid op indices."""
+    """Return whether ``arch`` contains six integer operation IDs in [0, 4]."""
     return (
-        isinstance(arch, (tuple, list))
+        isinstance(arch, (tuple, list, np.ndarray))
+        and (not isinstance(arch, np.ndarray) or arch.ndim == 1)
         and len(arch) == NUM_EDGES
-        and all(isinstance(i, (int, np.integer)) and 0 <= i < NUM_OPS for i in arch)
+        and all(
+            isinstance(i, (int, np.integer))
+            and not isinstance(i, (bool, np.bool_))
+            and 0 <= i < NUM_OPS
+            for i in arch
+        )
     )
 
 
 def arch_to_str(arch: tuple[int, ...]) -> str:
     """Convert to the official NAS-Bench-201 string encoding (``|op~i|+...``)."""
+    if not is_valid_arch(arch):
+        raise ValueError(f"Expected {NUM_EDGES} integer operation IDs in [0, {NUM_OPS - 1}]")
     ops = [OPS[i] for i in arch]
     return (
         f"|{ops[0]}~0|"
@@ -77,29 +85,6 @@ def str_to_arch(arch_str: str) -> tuple[int, ...]:
     if len(ops) != NUM_EDGES:
         raise ValueError(f"Expected {NUM_EDGES} ops, got {len(ops)} from {arch_str!r}")
     return tuple(ops)
-
-
-def one_hot_ops(arch: tuple[int, ...]) -> np.ndarray:
-    """One-hot operator matrix ``O`` of shape (NUM_EDGES, NUM_OPS) (Eq. 6 input)."""
-    oh = np.zeros((NUM_EDGES, NUM_OPS), dtype=np.float64)
-    oh[np.arange(NUM_EDGES), list(arch)] = 1.0
-    return oh
-
-
-def slot_adjacency() -> np.ndarray:
-    """Adjacency matrix over the six operation *slots* (line graph).
-
-    Two slots are adjacent iff their edges share a vertex in the cell DAG.  This
-    is the graph over which the Eq. (7) neighbourhood aggregation runs; treating
-    each operation slot as a node yields exactly ``NUM_EDGES x NUM_OPS = 30``
-    features, the input dimension ``d`` reported in Table 1.
-    """
-    adj = np.zeros((NUM_EDGES, NUM_EDGES), dtype=np.float64)
-    for i, (a, b) in enumerate(EDGES):
-        for j, (c, d) in enumerate(EDGES):
-            if i != j and ({a, b} & {c, d}):
-                adj[i, j] = 1.0
-    return adj
 
 
 def op_index_from_name(name: str) -> int:

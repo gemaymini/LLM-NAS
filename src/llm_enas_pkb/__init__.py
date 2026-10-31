@@ -9,8 +9,10 @@ Fang, W., Xue, Y., Yuan, L., Hasan, M. K., Aurangzeb, K. (2026).
 "Large language model assisted evolutionary neural architecture search with
 population knowledge base enhancement." Information Sciences, 735, 123110.
 
-This package implements the *regression-based* LLM surrogate model evaluated on
-NAS-Bench-201 (see Sec. 3.2.1, 3.3, 3.4 and Table 1 of the paper).
+This package implements a *regression-based* LLM surrogate variant on
+NAS-Bench-201.  Architectures use six categorical operation IDs directly, and
+prompts include search-space and network-construction code.  This encoding and
+prompt variant differs from the paper's architecture information encoder.
 """
 
 from .config import Config

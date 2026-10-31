@@ -5,9 +5,9 @@ client together: given a set of labelled PKB exemplars and unlabelled candidate
 architectures, it builds the regression prompt (Fig. 2), calls the LLM, and
 returns a normalised predicted performance value per candidate.
 
-In ``offline`` mode no API call is made; a deterministic k-NN surrogate (cosine
-similarity over the PKB vectors) produces the predictions instead, exercising the
-exact same prompt/parse/validate path so the full pipeline can be smoke-tested.
+In ``offline`` mode no API call is made; a deterministic k-NN surrogate (matching
+edge operations in the PKB) produces the predictions instead. Input validation
+and prompt construction are shared; API response parsing is only used online.
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ import logging
 
 import numpy as np
 
+from .categorical import categorical_similarity_matrix, validate_architecture_vectors
 from .config import Config
 from .encoder import ArchitectureInformationEncoder
 from .llm import DeepSeekClient, DeepSeekError, _extract_json_object
@@ -33,13 +34,7 @@ class RegressionPredictor:
         encoder: ArchitectureInformationEncoder | None = None,
     ):
         self.config = config
-        # Allow injecting a pre-built encoder (e.g. to share a consistent feature
-        # space across components); otherwise construct the default one.
-        self.encoder = encoder or ArchitectureInformationEncoder(
-            depth=config.aggregation_depth,
-            use_projection=config.use_projection,
-            seed=config.seed,
-        )
+        self.encoder = encoder or ArchitectureInformationEncoder()
         # In offline mode there is no API client; the k-NN surrogate is used instead.
         self.client = None if config.offline else DeepSeekClient(config)
 
@@ -49,6 +44,8 @@ class RegressionPredictor:
         pkb_vectors: np.ndarray,
         pkb_values: np.ndarray,
         candidate_vectors: np.ndarray,
+        *,
+        generation: int | None = None,
     ) -> np.ndarray:
         """Predict a value in [0, 1] for each candidate, given PKB exemplars.
 
@@ -58,13 +55,19 @@ class RegressionPredictor:
         after the retries are exhausted the deterministic k-NN surrogate is used as
         a last-resort fallback so a stubborn model can never abort the run.
         """
-        candidate_vectors = np.asarray(candidate_vectors, dtype=np.float64)
+        candidate_vectors = validate_architecture_vectors(candidate_vectors)
         n = len(candidate_vectors)
         if n == 0:
             return np.array([], dtype=np.float64)
 
         # Build the prompt (Fig. 2) from the labelled PKB + unlabelled candidates.
-        prompt = build_regression_prompt(pkb_vectors, pkb_values, candidate_vectors)
+        prompt = build_regression_prompt(
+            pkb_vectors,
+            pkb_values,
+            candidate_vectors,
+            dataset=self.config.dataset,
+            generation=generation,
+        )
         if self.config.offline:
             preds = self._offline_predict(pkb_vectors, pkb_values, candidate_vectors)
             return self._validate(preds, n)
@@ -105,32 +108,36 @@ class RegressionPredictor:
         candidate_archs,
         pkb_archs,
         pkb_values,
+        *,
+        generation: int | None = None,
     ) -> np.ndarray:
         """Convenience wrapper: encode architectures, then ``predict_values``."""
         pkb_vecs = self.encoder.encode_batch(pkb_archs)
         cand_vecs = self.encoder.encode_batch(candidate_archs)
-        return self.predict_values(pkb_vecs, np.asarray(pkb_values, dtype=np.float64), cand_vecs)
+        return self.predict_values(
+            pkb_vecs,
+            np.asarray(pkb_values, dtype=np.float64),
+            cand_vecs,
+            generation=generation,
+        )
 
     # -------------------------------------------------------------- helpers
     def _parse_predictions(self, content: str, n: int) -> np.ndarray:
-        """Extract the ``Value`` list from the LLM's JSON response.
-
-        Tolerates a scalar response for a single candidate, and broadcasts a
-        single-element list to ``n`` candidates (some models collapse the list).
-        """
+        """Require exactly one finite accuracy per candidate in the JSON response."""
         obj = _extract_json_object(content)
-        if "Value" not in obj:
-            raise ValueError(f"LLM response missing 'Value' key: {content[:200]!r}")
+        if not isinstance(obj, dict) or set(obj) != {"Value"}:
+            raise ValueError("LLM response must be a JSON object with only the 'Value' key")
         vals = obj["Value"]
-        if not isinstance(vals, (list, tuple)):
-            vals = [vals]
-        vals = [float(v) for v in vals]
-        if len(vals) == 1 and n > 1:
-            vals = vals * n
+        if not isinstance(vals, list):
+            raise ValueError("LLM 'Value' must be a list with one number per candidate")
         if len(vals) != n:
             raise ValueError(
                 f"LLM returned {len(vals)} values but {n} candidates were requested"
             )
+        if any(isinstance(v, bool) or not isinstance(v, (int, float)) for v in vals):
+            raise ValueError("LLM predictions must be numeric accuracy values")
+        if any(not np.isfinite(v) or not 0.0 <= v <= 1.0 for v in vals):
+            raise ValueError("LLM predictions must be finite accuracy values in [0, 1]")
         return np.asarray(vals, dtype=np.float64)
 
     @staticmethod
@@ -160,25 +167,31 @@ class RegressionPredictor:
     ) -> np.ndarray:
         """Deterministic k-NN surrogate used in ``offline`` mode.
 
-        For each candidate, average the values of its K nearest PKB exemplars (by
-        cosine similarity), weighted by the non-negative similarity.  This needs
-        no API call and gives a stable baseline for smoke-testing the pipeline.
+        Average the values of the K PKB exemplars with the most matching edge
+        operations, weighted by the fraction of matching positions. If none
+        match any position, use the complete PKB mean; an empty PKB yields zero.
+        This needs no API call and gives a stable baseline for smoke tests.
         """
+        pkb_values = np.asarray(pkb_values, dtype=np.float64)
+        if pkb_values.ndim != 1 or len(pkb_values) != len(pkb_vectors):
+            raise ValueError("Expected one performance value per PKB architecture")
         sim = self._cross_similarity(candidate_vectors, pkb_vectors)
         preds = np.zeros(len(candidate_vectors), dtype=np.float64)
+        if len(pkb_values) == 0:
+            return preds
         for i in range(len(candidate_vectors)):
             k = min(_OFFLINE_K, len(pkb_values))
-            nn = np.argsort(-sim[i])[:k]  # indices of the K most similar exemplars
-            w = np.maximum(sim[i][nn], 0.0)  # drop negative similarities
-            w = w / (w.sum() + 1e-12)  # normalise to a convex combination
-            preds[i] = float(np.dot(w, pkb_values[nn]))
+            nn = np.argsort(-sim[i], kind="stable")[:k]
+            w = sim[i][nn]
+            total_weight = w.sum()
+            preds[i] = (
+                float(np.dot(w / total_weight, pkb_values[nn]))
+                if total_weight > 0.0
+                else float(pkb_values.mean())
+            )
         return preds
 
     @staticmethod
     def _cross_similarity(a: np.ndarray, b: np.ndarray) -> np.ndarray:
-        """Row-normalised cosine similarity matrix between two sets of vectors."""
-        a = np.asarray(a, dtype=np.float64)
-        b = np.asarray(b, dtype=np.float64)
-        a = a / np.maximum(np.linalg.norm(a, axis=1, keepdims=True), 1e-12)
-        b = b / np.maximum(np.linalg.norm(b, axis=1, keepdims=True), 1e-12)
-        return a @ b.T
+        """Fraction of identical edge operations between two architecture sets."""
+        return categorical_similarity_matrix(a, b)

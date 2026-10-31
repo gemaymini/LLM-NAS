@@ -138,9 +138,8 @@
         
         </head>
         <body class="vscode-body vscode-light">
-            <span id="markdown-mermaid" aria-hidden="true" data-config="{&quot;darkModeTheme&quot;:&quot;vscode&quot;,&quot;lightModeTheme&quot;:&quot;vscode&quot;,&quot;maxTextSize&quot;:50000,&quot;clickDrag&quot;:&quot;alt&quot;,&quot;showControls&quot;:&quot;onHoverOrFocus&quot;,&quot;resizable&quot;:true,&quot;maxHeight&quot;:&quot;&quot;}"></span>
-				<h1 id="llm-enas-pkb--regression-surrogate-on-nas-bench-201">LLM-ENAS-PKB — Regression surrogate on NAS-Bench-201</h1>
-<p>A faithful re-implementation of the <strong>regression-based</strong> LLM surrogate model from</p>
+<h1>LLM-ENAS-PKB — Regression surrogate on NAS-Bench-201</h1>
+<p>An implementation of the <strong>regression-based</strong> LLM surrogate search described in</p>
 <blockquote>
 <p>Fang, W., Xue, Y., Yuan, L., Hasan, M. K., Aurangzeb, K. (2026).
 <em>Large language model assisted evolutionary neural architecture search with
@@ -148,10 +147,16 @@ population knowledge base enhancement.</em> Information Sciences, 735, 123110.
 (<a href="https://github.com/baigeixiaowang/LLM-ENAS-PKB">official code</a>)</p>
 </blockquote>
 <p>The paper replaces the expert-designed surrogate model in evolutionary NAS with a
-large language model (DeepSeek-R1). This repository implements the regression
-variant on <strong>NAS-Bench-201</strong> (<code>d = 30</code> input dimension, see Table 1 of the paper),
-driven by the <strong>DeepSeek official API</strong>.</p>
-<h2 id="what-is-implemented">What is implemented</h2>
+large language model. This repository runs a regression surrogate on
+<strong>NAS-Bench-201</strong> through an OpenAI-compatible chat-completions API.</p>
+<p>The current version is an explicit encoding and prompt variant: each architecture
+is a six-element list of categorical operation IDs, and the prompt explains the
+operators and executable network construction. The former one-hot projection and
+neighbour aggregation encoder has been removed. PKB diversity and the offline
+surrogate use the fraction of matching edge operations. These choices differ from
+the paper's Eq. (2) and architecture encoder in Eq. (6–7), so results should be
+reported with this variant identified.</p>
+<h2>What is implemented</h2>
 <table>
 <thead>
 <tr>
@@ -167,24 +172,29 @@ driven by the <strong>DeepSeek official API</strong>.</p>
 <td>Sec. 4.1</td>
 </tr>
 <tr>
-<td>Architecture information encoder (Eq. 6–7, 30-dim)</td>
+<td>Direct categorical encoding (6 operation IDs)</td>
 <td><code>encoder.py</code></td>
-<td>Sec. 3.4</td>
+<td>Encoding variant</td>
+</tr>
+<tr>
+<td>Executable cell/network and architecture conversion</td>
+<td><code>network.py</code></td>
+<td>NAS-Bench-201 construction</td>
 </tr>
 <tr>
 <td>Population knowledge base selection</td>
 <td><code>pkb.py</code></td>
-<td>Sec. 3.3, Alg. 2</td>
+<td>Sec. 3.3, Alg. 2, with matching-position similarity</td>
 </tr>
 <tr>
-<td>Regression prompt builder</td>
+<td>Seven-section regression prompt</td>
 <td><code>prompts.py</code></td>
-<td>Sec. 3.2.1, Fig. 2</td>
+<td>Expanded prompt variant</td>
 </tr>
 <tr>
-<td>DeepSeek official API client</td>
+<td>OpenAI-compatible API client</td>
 <td><code>llm.py</code></td>
-<td>Table 1</td>
+<td>Configurable provider</td>
 </tr>
 <tr>
 <td>Regression predictor (ties the above together)</td>
@@ -194,7 +204,7 @@ driven by the <strong>DeepSeek official API</strong>.</p>
 <tr>
 <td>Evolutionary loop</td>
 <td><code>evolution.py</code></td>
-<td>Sec. 3.1, Alg. 1</td>
+<td>Sec. 3.1, Alg. 1, with configurable elitism</td>
 </tr>
 <tr>
 <td>CLI entry point</td>
@@ -203,70 +213,160 @@ driven by the <strong>DeepSeek official API</strong>.</p>
 </tr>
 </tbody>
 </table>
-<h2 id="environment-uv">Environment (uv)</h2>
-<pre><code class="language-bash">uv <span class="hljs-built_in">sync</span>                 <span class="hljs-comment"># create .venv + install deps (incl. torch, nas-bench-201)</span>
-<span class="hljs-built_in">export</span> DEEPSEEK_API_KEY=sk-...   <span class="hljs-comment"># or put it in .env</span>
+<h2>Environment (uv)</h2>
+<pre><code class="language-bash">uv sync                 # create .venv + install deps (incl. torch, nas-bench-201)
+export DEEPSEEK_API_KEY=sk-...   # or put it in .env
 uv run llm-enas-pkb --dataset cifar10 --iterations 30
 </code></pre>
 <p>Python is managed by <code>uv</code> (<code>requires-python &gt;=3.10,&lt;3.13</code>); no system Python is
 used.</p>
-<h2 id="deepseek-api">DeepSeek API</h2>
+<h2>API configuration</h2>
 <ul>
-<li>Endpoint: <code>https://api.deepseek.com/chat/completions</code> (OpenAI-compatible).</li>
-<li>Model: <code>deepseek-v4-pro</code> (DeepSeek-V4 reasoning model). The paper used
-<code>deepseek-reasoner</code> (DeepSeek-R1), which the official API has since retired.
-Set <code>LLMENAS_MODEL=deepseek-flash</code> to use the faster V4.1-Flash model instead.</li>
+<li>The checked-in defaults are base URL <code>https://llmapi.paratera.com</code> and model
+  <code>DeepSeek-V4-Pro-0813</code>. The client appends <code>/chat/completions</code> to the base URL.</li>
+<li>Override the provider and model with <code>LLMENAS_API_BASE</code> and <code>LLMENAS_MODEL</code>.</li>
 <li>Auth: <code>DEEPSEEK_API_KEY</code> (or <code>LLMENAS_API_KEY_ENV</code> to point at another variable).</li>
 </ul>
 <p>Note: the paper reports a <code>repetition_penalty</code> of 1.8 (a HuggingFace parameter);
 the OpenAI-compatible API has no direct equivalent, so <code>frequency_penalty</code> (default
 0.0) is the closest analogue and is exposed via <code>LLMENAS_FREQUENCY_PENALTY</code>.</p>
-<h3 id="prompt-logging">Prompt logging</h3>
+<h3>Prompt logging</h3>
 <p>Every prompt sent to the API and the text the model returns are appended in real
-time (one flush per exchange) to <code>llm_prompts.log</code> in the working directory, so
-you can inspect exactly what the model saw and produced:</p>
-<pre><code class="language-bash"><span class="hljs-built_in">tail</span> -f llm_prompts.log   <span class="hljs-comment"># watch entries land while a run is in progress</span>
+time (one flush per exchange). By default the CLI creates a timestamped,
+hyperparameter-tagged filename for each run. Set an explicit filename to follow
+one log:</p>
+<pre><code class="language-bash">uv run llm-enas-pkb --prompt-log-path llm_prompts.log
+tail -f llm_prompts.log
 </code></pre>
-<p>Disable it with <code>LLMENAS_PROMPT_LOG_PATH=&quot;&quot;</code> (or <code>--prompt-log-path &quot;&quot;</code>), or
+<p>Disable it with <code>LLMENAS_PROMPT_LOG_PATH=""</code> (or <code>--prompt-log-path ""</code>), or
 redirect it with <code>LLMENAS_PROMPT_LOG_PATH=/tmp/prompts.log</code>. Failed writes are
 warned and ignored, so a missing/invalid path never aborts the run.</p>
-<h2 id="nas-bench-201-data">NAS-Bench-201 data</h2>
+<h2>Architecture codes and prompt contract</h2>
+<p>An architecture is <code>[op_01, op_02, op_12, op_03, op_13, op_23]</code>. Positions always
+refer to the directed edges <code>0→1</code>, <code>0→2</code>, <code>1→2</code>, <code>0→3</code>, <code>1→3</code>, and <code>2→3</code>.
+Node 0 is the cell input; each following node sums its incoming edge outputs;
+node 3 is the cell output. Every position contains one of these IDs:</p>
+<table>
+<thead>
+<tr>
+<th>ID</th>
+<th>Operation</th>
+<th>Meaning inside a searchable cell</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>0</code></td>
+<td><code>none</code></td>
+<td>Produce zeros; remove the edge's contribution</td>
+</tr>
+<tr>
+<td><code>1</code></td>
+<td><code>skip_connect</code></td>
+<td>Pass the input unchanged</td>
+</tr>
+<tr>
+<td><code>2</code></td>
+<td><code>nor_conv_1x1</code></td>
+<td>ReLU → 1×1 convolution → batch normalization</td>
+</tr>
+<tr>
+<td><code>3</code></td>
+<td><code>nor_conv_3x3</code></td>
+<td>ReLU → 3×3 convolution → batch normalization</td>
+</tr>
+<tr>
+<td><code>4</code></td>
+<td><code>avg_pool_3x3</code></td>
+<td>3×3 average pooling, stride 1, padding 1</td>
+</tr>
+</tbody>
+</table>
+<p>For example, <code>[0, 1, 2, 3, 4, 1]</code> means a zero edge at <code>0→1</code>, a skip at <code>0→2</code>,
+a 1×1 convolution at <code>1→2</code>, a 3×3 convolution at <code>0→3</code>, average pooling at
+<code>1→3</code>, and a skip at <code>2→3</code>. Its official benchmark string is
+<code>|none~0|+|skip_connect~0|nor_conv_1x1~1|+|nor_conv_3x3~0|avg_pool_3x3~1|skip_connect~2|</code>.
+IDs are category labels: <code>4</code> does not imply better performance or greater
+distance than <code>1</code>. Similarity is the number of equal positions divided by six.</p>
+<p><code>network.py</code> provides <code>NASBench201Cell</code> and the complete <code>TinyNetwork</code>, using
+<code>C=16</code>, <code>N=5</code>, and dataset-specific classifier sizes by default. Conversion works
+on these explicit searchable network instances, including inspection of their
+edge operations; it does not reconstruct arbitrary PyTorch models or weights:</p>
+<pre><code class="language-python">from llm_enas_pkb.network import arch_to_network, network_to_arch, network_to_code
+
+code = [0, 1, 2, 3, 4, 1]
+network = arch_to_network(code, dataset=&quot;cifar10&quot;)
+assert network_to_arch(network) == tuple(code)
+assert network_to_code(network) == code
+</code></pre>
+<p>Each prediction call still sends one <code>user</code> message, with seven sections:</p>
+<ol>
+<li>The predictor's role.</li>
+<li>The validation-accuracy regression task and dataset.</li>
+<li>The search space, operation descriptions, and operation implementation code.</li>
+<li>The code positions, network construction, and architecture/network conversion code.</li>
+<li>The prediction instructions for this generation and its actual candidate count.</li>
+<li>PKB architecture/ground-truth accuracy pairs and ordered candidate codes.</li>
+<li>Output constraints: a JSON object containing <code>Value</code>, one numeric value
+   in <code>[0, 1]</code> per candidate in the original order, with no extra prose.</li>
+</ol>
+<p>The prompt contains the code definition every time, so neither server-side
+conversation state nor a separate system message is required. Predictions are
+estimates of benchmark validation accuracy; the code in the prompt is structural
+context rather than a request to train or evaluate the network.</p>
+<h2>NAS-Bench-201 data</h2>
 <p><code>nas-bench-201</code> (import name <code>nas_201_api</code>) is installed from PyPI. The benchmark
 archive (<code>NAS-Bench-201-v1_1-096897.pth</code>, ~4.7 GB) must be obtained from the
 <a href="https://github.com/D-X-Y/NAS-Bench-201">official repo</a> (Google Drive; automated
 download is frequently blocked by Drive's quota limit, so manual download is
 recommended):</p>
-<pre><code class="language-bash"><span class="hljs-comment"># Put the file at either of these locations (auto-detected), or pass --data-path.</span>
-data/NAS-Bench-201-v1_1-096897.pth          <span class="hljs-comment"># project-local (recommended)</span>
-~/.torch/NAS-Bench-201-v1_1-096897.pth      <span class="hljs-comment"># legacy TORCH_HOME location</span>
+<pre><code class="language-bash"># Put the file at either of these locations (auto-detected), or pass --data-path.
+data/NAS-Bench-201-v1_1-096897.pth          # project-local (recommended)
+~/.torch/NAS-Bench-201-v1_1-096897.pth      # legacy TORCH_HOME location
 uv run llm-enas-pkb --data-path /abs/path/NAS-Bench-201-v1_1-096897.pth
 </code></pre>
 <p>A best-effort auto-download (via <code>gdown</code>) is attempted as a last resort
 (<code>scripts/download_data.py</code>).</p>
-<h2 id="running">Running</h2>
-<pre><code class="language-bash"><span class="hljs-comment"># Full evolution (regression surrogate, 30 generations, 100-query budget)</span>
+<h2>Running</h2>
+<pre><code class="language-bash"># Full evolution (regression surrogate, 30 generations, 100-query budget)
 uv run llm-enas-pkb --dataset cifar10 --seed 0
 
-<span class="hljs-comment"># Quick smoke test without calling the API (deterministic pseudo-LLM)</span>
+# Quick smoke test without calling the API (deterministic pseudo-LLM)
 uv run llm-enas-pkb --offline --iterations 3
 
-<span class="hljs-comment"># Predict a couple of candidate architectures from a small labelled archive</span>
-uv run python - &lt;&lt;<span class="hljs-string">&#x27;PY&#x27;</span>
+# Predict a couple of candidate architectures from a small labelled archive
+uv run python - &lt;&lt;'PY'
 from llm_enas_pkb import Config
 from llm_enas_pkb.nasbench201 import NASBench201
 from llm_enas_pkb.predictor import RegressionPredictor
 
-cfg = Config(offline=True)          <span class="hljs-comment"># deterministic pseudo-LLM (no API key)</span>
+cfg = Config(offline=True)          # deterministic pseudo-LLM (no API key)
 nb = NASBench201(cfg)
 pred = RegressionPredictor(cfg)
 
 pkb = [(0, 1, 2, 3, 4, 1), (4, 3, 2, 1, 0, 1), (1, 1, 1, 1, 1, 1)]
-pkb_vals = [nb.valid_acc(a) <span class="hljs-keyword">for</span> a <span class="hljs-keyword">in</span> pkb]   <span class="hljs-comment"># ground-truth labels</span>
+pkb_vals = [nb.valid_acc(a) for a in pkb]   # ground-truth labels
 candidates = [(2, 2, 2, 2, 2, 2), (0, 0, 0, 0, 0, 0)]
-<span class="hljs-built_in">print</span>(pred.predict_archs(candidates, pkb, pkb_vals))
+print(pred.predict_archs(candidates, pkb, pkb_vals))
 PY
 </code></pre>
-<h2 id="key-hyperparameters-table-1">Key hyperparameters (Table 1)</h2>
+<h2>Validation</h2>
+<p>The unit tests use synthetic PKB labels and mocked API responses, so no API key
+or benchmark archive is required:</p>
+<pre><code class="language-bash">uv run python -m unittest discover -s tests -v
+</code></pre>
+<p>The <code>--offline</code> search example above avoids LLM API calls but still needs the
+NAS-Bench-201 archive for ground-truth queries.</p>
+<h2>Key hyperparameters</h2>
+<p>After merging and de-duplicating parents and offspring, survivor selection first
+keeps the best <code>floor(population_size * elite_ratio)</code> individuals by current
+fitness (ground-truth accuracy when available, otherwise the surrogate prediction).
+Binary tournament selection fills the remaining slots from candidates excluding
+those elites, without duplicate survivors. The default <code>elite_ratio=0.25</code> keeps
+5 elites for a population of 20. Set <code>Config(elite_ratio=...)</code>,
+<code>LLMENAS_ELITE_RATIO</code>, or <code>--elite-ratio</code> to a value in <code>[0, 1]</code>; <code>0</code> disables
+elitism and <code>1</code> selects only the highest-fitness individuals. If there are fewer
+unique candidates than the target population size, all available candidates survive.</p>
 <table>
 <thead>
 <tr>
@@ -278,7 +378,7 @@ PY
 <tbody>
 <tr>
 <td>model</td>
-<td><code>deepseek-v4-pro</code></td>
+<td><code>DeepSeek-V4-Pro-0813</code></td>
 <td><code>LLMENAS_MODEL</code></td>
 </tr>
 <tr>
@@ -292,14 +392,9 @@ PY
 <td><code>LLMENAS_TOP_P</code></td>
 </tr>
 <tr>
-<td>input dim <code>d</code></td>
-<td><code>30</code></td>
-<td>—</td>
-</tr>
-<tr>
-<td>aggregation depth <code>k</code></td>
-<td><code>3</code></td>
-<td><code>LLMENAS_AGGREGATION_DEPTH</code></td>
+<td>architecture code</td>
+<td>6 categorical IDs in <code>0..4</code></td>
+<td>Fixed by the search space</td>
 </tr>
 <tr>
 <td>iterations</td>
@@ -310,6 +405,11 @@ PY
 <td>population size</td>
 <td><code>20</code></td>
 <td><code>LLMENAS_POPULATION_SIZE</code></td>
+</tr>
+<tr>
+<td>elite ratio</td>
+<td><code>0.25</code></td>
+<td><code>LLMENAS_ELITE_RATIO</code></td>
 </tr>
 <tr>
 <td>crossover prob</td>
@@ -333,8 +433,5 @@ PY
 </tr>
 </tbody>
 </table>
-
-            
-            
-        </body>
+</body>
         </html>

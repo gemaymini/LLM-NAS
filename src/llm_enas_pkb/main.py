@@ -30,6 +30,8 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--model", default=None, help="DeepSeek model (deepseek-v4-pro / deepseek-flash)")
     p.add_argument("--iterations", type=int, default=None, dest="max_iterations")
     p.add_argument("--population-size", type=int, default=None)
+    p.add_argument("--elite-ratio", type=float, default=None,
+                   help="Fraction of the population reserved for the best merged candidates (0..1)")
     p.add_argument("--offspring-size", type=int, default=None)
     p.add_argument("--query-budget", type=int, default=None)
     p.add_argument("--n-init", type=int, default=None)
@@ -44,8 +46,6 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--run", type=int, default=1, dest="num_runs",
                    help="Number of repeated runs with different seeds (reports mean performance)")
     p.add_argument("--offline", action="store_true", help="Use a deterministic pseudo-LLM (no API)")
-    p.add_argument("--no-projection", action="store_true", dest="no_projection",
-                   help="Disable the Eq. (6) projection in the encoder")
     p.add_argument("--thinking", action="store_true",
                    help="Enable DeepSeek thinking (reasoning) mode (default: disabled)")
     p.add_argument("--reasoning-effort", default=None, choices=["low", "medium", "high"],
@@ -69,6 +69,7 @@ def main(argv: list[str] | None = None) -> int:
         "model": args.model,
         "max_iterations": args.max_iterations,
         "population_size": args.population_size,
+        "elite_ratio": args.elite_ratio,
         "offspring_size": args.offspring_size,
         "query_budget": args.query_budget,
         "n_init": args.n_init,
@@ -92,8 +93,6 @@ def main(argv: list[str] | None = None) -> int:
     # we only act when the flag was actually passed.
     if args.offline:
         cfg.offline = True
-    if args.no_projection:
-        cfg.use_projection = False
     if args.thinking:
         cfg.thinking = True
 

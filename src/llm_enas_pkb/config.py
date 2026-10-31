@@ -1,9 +1,11 @@
 """Configuration for LLM-ENAS-PKB (NAS-Bench-201 regression surrogate).
 
-The defaults mirror Table 1 of the paper, restricted to the NAS-Bench-201 /
-DARTS column (``d = 30`` input dimension).  Values may be overridden either by
-constructing ``Config`` directly or via environment variables with an
-``LLMENAS_`` prefix (``LLMENAS_MODEL``, ``LLMENAS_DATASET``, ...).
+Evolution and PKB defaults follow the paper's NAS-Bench-201 settings, with
+configurable elitism added to survivor selection.  This variant represents an
+architecture directly as six categorical operation IDs;
+there are no configurable embedding or aggregation stages.  Values may be
+overridden either by constructing ``Config`` directly or via environment
+variables with an ``LLMENAS_`` prefix (``LLMENAS_MODEL``, ``LLMENAS_DATASET``, ...).
 
 ``Config`` is a plain ``@dataclass``: every knob is a typed field with a default,
 so the whole experiment is reproducible from a single object.  ``from_env()`` is
@@ -70,16 +72,12 @@ class Config:
     # ------------------------------------------------------------- Evolution
     max_iterations: int = 30
     population_size: int = 20
+    # Keep the best floor(population_size * elite_ratio) merged candidates;
+    # fill remaining slots by binary tournament.  Must be between 0 and 1.
+    elite_ratio: float = 0.25
     crossover_prob: float = 0.8
     mutation_prob: float = 0.2  # per-gene mutation rate (Table 1)
     offspring_size: int = 20  # candidate offspring generated per generation
-
-    # -------------------------------------------------------------- Encoder
-    aggregation_depth: int = 3  # k in Eq. (7)
-    input_dim: int = 30  # d in Table 1 (6 edges x 5 ops for NAS-Bench-201)
-    # Apply the fixed linear projection of Eq. (6) on top of the one-hot
-    # operator encoding.  False -> pure one-hot + aggregation.
-    use_projection: bool = True
 
     # ------------------------------------------------------------------- PKB
     alpha: float = 0.6  # performance weight in Eq. (4)

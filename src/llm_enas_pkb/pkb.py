@@ -5,7 +5,7 @@ true performance values, the PKB selects a compact, representative and diverse
 subset to inject into the LLM prompt:
 
   * normalize performance to [0, 1]                       (Eq. 3)
-  * cosine similarity matrix over the encoded vectors     (Eq. 2)
+  * categorical similarity: fraction of matching edge operations
   * combined score = alpha * perf + (1-alpha) * diversity (Eq. 4)
   * crowding distance over the (perf, diversity) plane    (Eq. 5)
   * merge top-K_perf (score) and top-K_div (crowding), fill to ``selected_size``.
@@ -15,13 +15,7 @@ from __future__ import annotations
 
 import numpy as np
 
-
-def cosine_similarity_matrix(embeddings: np.ndarray) -> np.ndarray:
-    """Row-normalised cosine similarity matrix S_ij = <x_i, x_j> / (||x_i|| ||x_j||) (Eq. 2)."""
-    norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
-    norms[norms < 1e-12] = 1e-12  # guard against zero vectors
-    unit = embeddings / norms
-    return unit @ unit.T
+from .categorical import categorical_similarity_matrix, validate_architecture_vectors
 
 
 def normalize_performance(values: np.ndarray) -> np.ndarray:
@@ -70,18 +64,22 @@ def select_pkb(
 ) -> np.ndarray:
     """Return indices (into ``arch_vectors``) of the selected PKB individuals.
 
-    ``arch_vectors`` are already-encoded architecture embeddings (``z_i``), so
-    ``Encoder(x_i)`` is the identity here.
+    ``arch_vectors`` contain six categorical operation IDs per architecture.
+    Diversity depends on matching positions, never on numeric ID magnitudes.
     """
-    arch_vectors = np.asarray(arch_vectors, dtype=np.float64)
+    arch_vectors = validate_architecture_vectors(arch_vectors)
     perf_values = np.asarray(perf_values, dtype=np.float64)
+    if perf_values.ndim != 1 or len(arch_vectors) != len(perf_values):
+        raise ValueError("Expected one performance value per architecture")
     n = len(perf_values)
+    if n == 0:
+        return np.array([], dtype=int)
     # Clamp the selection sizes to the available pool size.
     selected_size = min(selected_size, n)
     k_perf = min(k_perf, n)
     k_div = min(k_div, n)
 
-    sim = cosine_similarity_matrix(arch_vectors)  # Eq. (2)
+    sim = categorical_similarity_matrix(arch_vectors)
     perf_norm = normalize_performance(perf_values)  # Eq. (3)
     # Diversity of individual i = 1 - its mean similarity to the rest (Eq. 4 term).
     diversity = 1.0 - sim.mean(axis=1)  # Eq. (4) diversity term
