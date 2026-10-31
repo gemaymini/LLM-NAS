@@ -39,8 +39,10 @@ class Config:
     # has since been retired.  The official API now serves "deepseek-v4-pro"
     # (reasoning) and "deepseek-flash" (fast); the former is the drop-in
     # replacement for the paper's reasoning model.
-    model: str = "deepseek-v4-pro"
-    api_base: str = "https://api.deepseek.com"
+    # model: str = "deepseek-v4-pro"
+    model: str = "DeepSeek-V4-Pro-0813"
+    # api_base: str = "https://api.deepseek.com"
+    api_base: str = "https://llmapi.paratera.com"
     # OpenAI-compatible base URL; the client appends ``/chat/completions``.
     # Name of the environment variable holding the DeepSeek API key.
     api_key_env: str = ""
