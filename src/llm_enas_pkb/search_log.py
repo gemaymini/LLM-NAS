@@ -2,11 +2,11 @@
 
 Writes one human-readable section per generation recording:
 
-1. the current population ``P_t`` (arch + fitness, tagged ground-truth vs predicted),
+1. the incoming population ``P_t`` (scores/tags snapshotted before this generation),
 2. the PKB exemplars selected from the archive for this generation's prompt,
 3. the offspring produced by crossover + mutation (arch + LLM-predicted fitness),
-4. the next population ``P_{t+1}`` selected by elitism + binary tournament,
-5. the individuals that were ground-truth evaluated ("queried") this generation.
+4. pre-selection queries, their reasons, predictions, truths, and signed errors,
+5. measured elites and the next population ``P_{t+1}``, plus survival counts.
 
 Each architecture is printed as six categorical operation IDs in canonical edge
 order, followed by its official NAS-Bench-201 string encoding (see
@@ -70,6 +70,19 @@ class SearchLogger:
                 f"offspring={cfg.offspring_size} query_budget={cfg.query_budget}"
             ),
             (
+                "selection_policy=measured_elites query_timing=before_selection "
+                f"query_explore_ratio={cfg.query_explore_ratio} "
+                f"refresh_parent_predictions={cfg.refresh_parent_predictions}"
+            ),
+            (
+                "Population scores/tags are from generation start; next-population scores "
+                "are after queries. mean-pop-valid averages measured next-population members."
+            ),
+            (
+                "query error = prediction - truth (positive means overestimated); "
+                "prediction_gen identifies the latest prediction used for fitness."
+            ),
+            (
                 "encoding=6 categorical operation IDs; "
                 "edge order=(0->1, 0->2, 1->2, 0->3, 1->3, 2->3)"
             ),
@@ -89,9 +102,16 @@ class SearchLogger:
         offspring,
         preds,
         next_pop,
-        queried,
+        query_records,
         fitness,
         archive,
+        population_fitness,
+        archive_before,
+        parent_prediction_generations,
+        prediction_generations,
+        predictions,
+        elites,
+        survival,
         pkb_archs,
         queries: int,
         best_valid: float,
@@ -111,11 +131,15 @@ class SearchLogger:
 
         lines.append(f"Population P_{generation} ({len(population)} individuals):")
         for i, a in enumerate(population, 1):
-            tag = "GT" if a in archive else "pred"
-            lines.append(f"  {i:>3}. {self._arch(a, fitness[a], tag)}")
+            tag = "GT" if a in archive_before else "pred"
+            age = (f"  prediction_gen={parent_prediction_generations[a]}"
+                   if tag == "pred" else "")
+            lines.append(f"  {i:>3}. {self._arch(a, population_fitness[a], tag)}{age}")
 
         lines.append(_SUB)
-        lines.append(f"PKB exemplars ({len(pkb_archs)} selected from {len(archive)} archived):")
+        lines.append(
+            f"PKB exemplars ({len(pkb_archs)} selected from {len(archive_before)} archived):"
+        )
         for i, a in enumerate(pkb_archs, 1):
             lines.append(f"  {i:>3}. {self._arch(a, archive[a], 'GT')}")
 
@@ -124,21 +148,54 @@ class SearchLogger:
             f"Offspring ({len(offspring)} after de-duplication, LLM-predicted fitness):"
         )
         for i, (a, p) in enumerate(zip(offspring, preds), 1):
-            lines.append(f"  {i:>3}. {self._arch(a, p, 'pred')}")
+            lines.append(f"  {i:>3}. {self._arch(a, p, 'pred')}  prediction_gen={generation}")
+
+        offspring_set = set(offspring)
+        refreshed_parents = [a for a in predictions if a not in offspring_set]
+        if refreshed_parents:
+            lines.append(_SUB)
+            lines.append(f"Refreshed unmeasured parents ({len(refreshed_parents)}):")
+            for i, a in enumerate(refreshed_parents, 1):
+                lines.append(
+                    f"  {i:>3}. {self._arch(a, predictions[a], 'pred')} "
+                    f" prediction_gen={generation}"
+                )
+
+        lines.append(_SUB)
+        lines.append(f"Ground-truth queried this generation ({len(query_records)}):")
+        for i, record in enumerate(query_records, 1):
+            a = record["arch"]
+            lines.append(
+                f"  {i:>3}. {self._arch(a, record['true_valid'], 'GT')} "
+                f" reason={record['reason']} prediction={record['prediction']:.4f} "
+                f" prediction_gen={record['prediction_generation']} "
+                f" error={record['error']:+.4f} survived={record['survived']}"
+            )
+
+        lines.append(_SUB)
+        quota = int(cfg.population_size * cfg.elite_ratio)
+        lines.append(f"Ground-truth elites ({len(elites)}/{quota} protected slots):")
+        for i, a in enumerate(elites, 1):
+            lines.append(f"  {i:>3}. {self._arch(a, archive[a], 'GT')}")
 
         lines.append(_SUB)
         lines.append(
             f"Next population P_{generation + 1} "
-            f"(elitism + binary tournament, {len(next_pop)}):"
+            f"(ground-truth elitism + binary tournament, {len(next_pop)}):"
         )
         for i, a in enumerate(next_pop, 1):
             tag = "GT" if a in archive else "pred"
-            lines.append(f"  {i:>3}. {self._arch(a, fitness[a], tag)}")
+            age = f"  prediction_gen={prediction_generations[a]}" if tag == "pred" else ""
+            lines.append(f"  {i:>3}. {self._arch(a, fitness[a], tag)}{age}")
 
         lines.append(_SUB)
-        lines.append(f"Ground-truth queried this generation ({len(queried)}):")
-        for i, a in enumerate(queried, 1):
-            lines.append(f"  {i:>3}. {self._arch(a, archive[a], 'GT')}")
+        lines.append("Survival (unique architectures): " + " ".join(
+            f"{name}={value}" for name, value in survival.items()
+        ))
+        lines.append(
+            "parents_retained + offspring_selected - overlap_selected = next population size; "
+            "new_offspring_selected excludes architectures already in the parent population."
+        )
 
         lines.append(_SUB)
         self._write("\n".join(lines))

@@ -31,9 +31,13 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--iterations", type=int, default=None, dest="max_iterations")
     p.add_argument("--population-size", type=int, default=None)
     p.add_argument("--elite-ratio", type=float, default=None,
-                   help="Fraction of the population reserved for the best merged candidates (0..1)")
+                   help="Maximum fraction reserved for ground-truth elites (0..1)")
+    p.add_argument("--refresh-parent-predictions", action=argparse.BooleanOptionalAction,
+                   default=None, help="Also refresh unmeasured parents in each prediction batch")
     p.add_argument("--offspring-size", type=int, default=None)
     p.add_argument("--query-budget", type=int, default=None)
+    p.add_argument("--query-explore-ratio", type=float, default=None,
+                   help="Fraction of post-initialization queries used for exploration (0..1)")
     p.add_argument("--n-init", type=int, default=None)
     p.add_argument("--alpha", type=float, default=None)
     p.add_argument("--k-perf", type=int, default=None)
@@ -70,8 +74,10 @@ def main(argv: list[str] | None = None) -> int:
         "max_iterations": args.max_iterations,
         "population_size": args.population_size,
         "elite_ratio": args.elite_ratio,
+        "refresh_parent_predictions": args.refresh_parent_predictions,
         "offspring_size": args.offspring_size,
         "query_budget": args.query_budget,
+        "query_explore_ratio": args.query_explore_ratio,
         "n_init": args.n_init,
         "alpha": args.alpha,
         "k_perf": args.k_perf,

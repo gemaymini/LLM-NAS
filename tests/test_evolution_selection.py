@@ -30,7 +30,9 @@ class EliteSelectionTests(unittest.TestCase):
         rng.integers.side_effect = [np.array([i, i + 1]) for i in range(0, 30, 2)]
 
         with patch.object(search, "_tournament", wraps=search._tournament) as tournament:
-            selected = search._select_next_population(candidates, float, rng)
+            selected = search._select_next_population(
+                candidates, float, rng, archive={a: float(a) for a in candidates},
+            )
 
         self.assertEqual(selected, [39, 38, 37, 36, 35] + list(range(1, 30, 2)))
         self.assertEqual(len(set(selected)), 20)
@@ -48,6 +50,7 @@ class EliteSelectionTests(unittest.TestCase):
                 with patch.object(search, "_tournament", wraps=search._tournament) as tournament:
                     selected = search._select_next_population(
                         list(range(40)), float, np.random.default_rng(23),
+                        archive={a: float(a) for a in range(40)},
                     )
                 self.assertEqual(selected[:elite_count], list(range(39, 39 - elite_count, -1)))
                 self.assertEqual(len(selected), size)
@@ -60,6 +63,7 @@ class EliteSelectionTests(unittest.TestCase):
             with self.subTest(candidates=candidates):
                 selected = self.make_search()._select_next_population(
                     candidates, float, np.random.default_rng(11),
+                    archive={a: float(a) for a in candidates},
                 )
                 self.assertEqual(len(selected), len(set(candidates)))
                 self.assertEqual(set(selected), set(candidates))
@@ -68,22 +72,33 @@ class EliteSelectionTests(unittest.TestCase):
         search = self.make_search(elite_ratio=0.0)
         candidates = list(range(60))
         expected = search._tournament(candidates, float, 20, np.random.default_rng(17))
-        selected = search._select_next_population(candidates, float, np.random.default_rng(17))
+        selected = search._select_next_population(
+            candidates, float, np.random.default_rng(17), archive={},
+        )
         self.assertEqual(selected, expected)
 
     def test_full_elitism_selects_only_the_best_without_random_draws(self):
         search = self.make_search(elite_ratio=1.0)
         rng = Mock()
-        selected = search._select_next_population(list(range(40)), float, rng)
+        selected = search._select_next_population(
+            list(range(40)), float, rng, archive={a: float(a) for a in range(40)},
+        )
         self.assertEqual(selected, list(range(39, 19, -1)))
         rng.integers.assert_not_called()
 
     def test_seed_reproduces_selection_and_tournament_keeps_randomness(self):
         search = self.make_search()
         candidates = list(range(100))
-        first = search._select_next_population(candidates, float, np.random.default_rng(42))
-        repeated = search._select_next_population(candidates, float, np.random.default_rng(42))
-        different = search._select_next_population(candidates, float, np.random.default_rng(43))
+        archive = {a: float(a) for a in candidates}
+        first = search._select_next_population(
+            candidates, float, np.random.default_rng(42), archive=archive,
+        )
+        repeated = search._select_next_population(
+            candidates, float, np.random.default_rng(42), archive=archive,
+        )
+        different = search._select_next_population(
+            candidates, float, np.random.default_rng(43), archive=archive,
+        )
         self.assertEqual(first, repeated)
         self.assertEqual(first[:5], different[:5])
         self.assertNotEqual(first[5:], different[5:])
@@ -93,7 +108,7 @@ class EliteSelectionTests(unittest.TestCase):
             with self.subTest(ratio=ratio), self.assertRaisesRegex(ValueError, "elite_ratio"):
                 self.make_search(elite_ratio=ratio)
 
-    def test_run_selects_elites_from_both_parents_and_offspring(self):
+    def test_run_does_not_protect_unmeasured_offspring_as_elites(self):
         archs = list(itertools.islice(itertools.product(range(5), repeat=6), 16))
         parents, children = archs[:8], archs[8:]
         parent_scores = {arch: 0.4 + i / 100 for i, arch in enumerate(parents)}
@@ -121,20 +136,75 @@ class EliteSelectionTests(unittest.TestCase):
         select.assert_called_once()
         self.assertEqual(set(select.call_args.args[0]), set(archs))
         generation = logger.return_value.log_generation.call_args.kwargs
-        self.assertEqual(generation["next_pop"][:2], [parents[0], children[0]])
+        self.assertEqual(generation["elites"], [parents[0], parents[-1]])
+        self.assertEqual(generation["next_pop"][:2], generation["elites"])
         self.assertEqual(len(set(generation["next_pop"])), 8)
         self.assertEqual(generation["fitness"][parents[0]], 0.99)
         self.assertEqual(result["queries"], 8)
         self.assertEqual(bench.valid_acc.call_count, 8)
 
+    def test_unfilled_elite_slots_go_to_tournament_and_elites_use_archive_scores(self):
+        search = self.make_search(population_size=4, elite_ratio=1.0)
+        # An archived architecture outside this pool cannot be resurrected.
+        archive = {0: 0.8, 1: 0.9, 99: 1.0}
+        scores = {0: 0.99, 1: 0.1, 2: 0.95, 3: 0.96, 4: 0.97}
+        with patch.object(search, "_tournament", return_value=[4, 3]) as tournament:
+            selected = search._select_next_population(
+                list(range(5)), scores.__getitem__, np.random.default_rng(1), archive=archive,
+            )
+        self.assertEqual(selected, [1, 0, 4, 3])
+        self.assertEqual(tournament.call_args.args[0], [2, 3, 4])
+        self.assertEqual(tournament.call_args.args[2], 2)
+
+    def test_run_logs_parent_and_next_populations_across_generations(self):
+        archs = list(itertools.islice(itertools.product(range(5), repeat=6), 6))
+        initial, first, second = archs[:2], archs[2:4], archs[4:]
+        scores = dict(zip(archs, [0.4, 0.5, 0.6, 0.7, 0.8, 0.9]))
+        bench = Mock()
+        bench.sample.return_value = initial
+        bench.valid_acc.side_effect = scores.__getitem__
+        bench.test_acc.return_value = 0.85
+        predictor = Mock()
+        predictor.encoder = ArchitectureInformationEncoder()
+        predictor.predict_values.side_effect = [np.array([0.6, 0.7]), np.array([0.8, 0.9])]
+        cfg = Config(population_size=2, n_init=2, max_iterations=2, query_budget=6,
+                     elite_ratio=1.0, seed=7, search_log_path=None, prompt_log_path=None)
+        search = EvolutionSearch(cfg, bench, predictor)
+
+        with patch.object(search, "_make_offspring", side_effect=[first, second]) as offspring, \
+                patch("llm_enas_pkb.evolution.SearchLogger") as logger:
+            result = search.run()
+
+        log = logger.return_value
+        self.assertEqual(log.log_header.call_args.args[0], initial)
+        self.assertEqual(log.log_generation.call_count, 2)
+        previous = initial
+        for index, expected_next in enumerate((first[::-1], second[::-1])):
+            generation = log.log_generation.call_args_list[index].kwargs
+            self.assertEqual(generation["generation"], index + 1)
+            self.assertEqual(generation["population"], previous)
+            self.assertEqual(offspring.call_args_list[index].args[0], previous)
+            self.assertEqual(generation["next_pop"], expected_next)
+            self.assertNotEqual(generation["population"], generation["next_pop"])
+            expected_mean = np.mean([scores[a] for a in expected_next])
+            self.assertAlmostEqual(generation["mean_pop_valid"], expected_mean)
+            self.assertAlmostEqual(result["history"][index]["mean_pop_valid"], expected_mean)
+            previous = generation["next_pop"]
+        self.assertEqual(result["queries"], 6)
+
 
 class EliteConfigTests(unittest.TestCase):
     def test_environment_parses_elite_ratio_as_float(self):
-        with patch.dict("os.environ", {"LLMENAS_ELITE_RATIO": "0.4"}, clear=True), \
+        with patch.dict("os.environ", {
+            "LLMENAS_ELITE_RATIO": "0.4", "LLMENAS_QUERY_EXPLORE_RATIO": "0.5",
+            "LLMENAS_REFRESH_PARENT_PREDICTIONS": "true",
+        }, clear=True), \
                 patch("llm_enas_pkb.config.load_dotenv"):
             cfg = Config.from_env()
         self.assertIsInstance(cfg.elite_ratio, float)
         self.assertEqual(cfg.elite_ratio, 0.4)
+        self.assertEqual(cfg.query_explore_ratio, 0.5)
+        self.assertIs(cfg.refresh_parent_predictions, True)
 
     def test_cli_override_reaches_search_and_omitted_flag_preserves_environment(self):
         for flags, expected in (([], 0.75), (["--elite-ratio", "0"], 0.0),
@@ -153,6 +223,32 @@ class EliteConfigTests(unittest.TestCase):
                 }
                 self.assertEqual(main(flags + ["--prompt-log-path", "", "--search-log-path", ""]), 0)
                 self.assertEqual(search.call_args.args[0].elite_ratio, expected)
+
+    def test_cli_query_and_refresh_options_preserve_or_override_environment(self):
+        cases = [([], "true", 0.5, True),
+                 (["--query-explore-ratio", "0", "--no-refresh-parent-predictions"],
+                  "true", 0.0, False),
+                 (["--query-explore-ratio", "1", "--refresh-parent-predictions"],
+                  "false", 1.0, True)]
+        for flags, env_refresh, expected_ratio, expected_refresh in cases:
+            with self.subTest(flags=flags), \
+                    patch.dict("os.environ", {"LLMENAS_QUERY_EXPLORE_RATIO": "0.5",
+                                              "LLMENAS_REFRESH_PARENT_PREDICTIONS": env_refresh},
+                               clear=True), \
+                    patch("llm_enas_pkb.config.load_dotenv"), \
+                    patch("llm_enas_pkb.main.NASBench201"), \
+                    patch("llm_enas_pkb.main.RegressionPredictor"), \
+                    patch("llm_enas_pkb.main.EvolutionSearch") as search, \
+                    patch("llm_enas_pkb.main.logging.basicConfig"), \
+                    patch("sys.stdout", new_callable=io.StringIO):
+                search.return_value.run.return_value = {
+                    "best_valid": 0.9, "best_test": 0.89, "queries": 20,
+                    "best_arch": (0, 0, 0, 0, 0, 0),
+                }
+                self.assertEqual(main(flags + ["--prompt-log-path", "", "--search-log-path", ""]), 0)
+                cfg = search.call_args.args[0]
+                self.assertEqual(cfg.query_explore_ratio, expected_ratio)
+                self.assertIs(cfg.refresh_parent_predictions, expected_refresh)
 
 
 if __name__ == "__main__":

@@ -181,15 +181,56 @@ NAS-Bench-201 archive for ground-truth queries.
 
 ## Key hyperparameters
 
-After merging and de-duplicating parents and offspring, survivor selection first
-keeps the best `floor(population_size * elite_ratio)` individuals by current
-fitness (ground-truth accuracy when available, otherwise the surrogate prediction).
-Binary tournament selection fills the remaining slots from candidates excluding
-those elites, without duplicate survivors. The default `elite_ratio=0.25` keeps
-5 elites for a population of 20. Set `Config(elite_ratio=...)`,
-`LLMENAS_ELITE_RATIO`, or `--elite-ratio` to a value in `[0, 1]`; `0` disables
-elitism and `1` selects only the highest-fitness individuals. If there are fewer
-unique candidates than the target population size, all available candidates survive.
+Each generation refreshes predictions, queries ground truth from the merged,
+de-duplicated parent/offspring pool, and **then selects survivors once**. A new
+prediction replaces an unmeasured architecture's previous prediction, while
+archived ground truth always takes precedence. By default only offspring are
+predicted. `--refresh-parent-predictions` also includes unmeasured parents in the
+same prediction batch; this increases token usage, not the number of prediction
+batches. `--no-refresh-parent-predictions` overrides an enabled environment setting.
+
+Queries no longer require prior survivor selection. The per-generation quota is
+`ceil(remaining_budget / remaining_generations)`, capped by the number of unique
+unmeasured candidates. Initialization counts toward `query_budget`; a budget
+smaller than the initial population is rejected before search. Unspent queries
+roll forward, but unused budget is possible if no unmeasured candidates remain.
+
+The default `query_explore_ratio=1/3` reserves approximately one third of
+post-initialization queries for uniform sampling without replacement; the other
+queries take the highest current predictions. Exploitation candidates are removed
+before exploration sampling. Fractional exploration slots carry across generations:
+after `Q` actual post-initialization queries, the exploration total is
+`floor(Q * query_explore_ratio)` (with floating-point roundoff tolerance).
+For single-query generations at the default ratio, the allocation repeats
+`exploit, exploit, explore`. Set `--query-explore-ratio` or
+`LLMENAS_QUERY_EXPLORE_RATIO` in `[0, 1]`; `0` queries only by predicted rank and
+`1` queries only by uniform exploration. These endpoints still query before selection.
+
+After query corrections, up to `floor(population_size * elite_ratio)` protected
+slots go to **measured candidates ranked by ground truth**, within the current
+merged pool. Binary tournaments fill the remaining slots using ground truth when
+available and the latest prediction otherwise. Missing measured elites release
+their slots to tournaments; unmeasured candidates cannot occupy protected slots.
+The default `elite_ratio=0.25` reserves up to 5 true elites for a population of 20.
+Set `Config(elite_ratio=...)`, `LLMENAS_ELITE_RATIO`, or `--elite-ratio` in `[0, 1]`;
+`0` disables protected slots, while `1` uses only true elites if enough measured
+candidates exist, and tournaments otherwise. Small pools are kept without padding
+or duplicate survivors. Prediction errors can still affect tournament survivors.
+
+Search logs record the policy and new settings, incoming parent score/tag snapshots,
+the generation of each active prediction, query reasons (`exploit` / `explore`),
+pre-query predictions, true accuracies, signed errors (`prediction - truth`),
+whether queried candidates survived, and the final measured elites. A queried
+candidate may legitimately be rejected in the same generation. `mean-pop-valid`
+still averages only measured members of the **final next population**. Unique
+survival counts satisfy `parents_retained + offspring_selected - overlap_selected
+= next_population_size`; `new_offspring_selected` excludes parent/offspring overlap.
+The returned `history` also includes query records, elites, and these counts.
+
+This policy changes the search trajectory relative to the previous mixed-score
+elitism. Compare repeated runs with the same initial populations, seed sets, and
+query budgets; a seed controls local randomness, not remote LLM response determinism.
+See [the implementation and evaluation notes](docs/prediction_error_mitigation.md).
 
 | Parameter | Value | Env override |
 |---|---|---|
@@ -200,6 +241,8 @@ unique candidates than the target population size, all available candidates surv
 | iterations | `30` | `LLMENAS_MAX_ITERATIONS` |
 | population size | `20` | `LLMENAS_POPULATION_SIZE` |
 | elite ratio | `0.25` | `LLMENAS_ELITE_RATIO` |
+| query exploration ratio | `1/3` | `LLMENAS_QUERY_EXPLORE_RATIO` |
+| refresh unmeasured parent predictions | `False` | `LLMENAS_REFRESH_PARENT_PREDICTIONS` |
 | crossover prob | `0.8` | `LLMENAS_CROSSOVER_PROB` |
 | PKB `alpha` | `0.6` | `LLMENAS_ALPHA` |
 | query budget | `100` | `LLMENAS_QUERY_BUDGET` |

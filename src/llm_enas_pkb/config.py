@@ -1,7 +1,7 @@
 """Configuration for LLM-ENAS-PKB (NAS-Bench-201 regression surrogate).
 
-Evolution and PKB defaults follow the paper's NAS-Bench-201 settings, with
-configurable elitism added to survivor selection.  This variant represents an
+Evolution and PKB defaults start from the paper's NAS-Bench-201 settings, with
+measured-only elitism and pre-selection exploration queries added. This variant represents an
 architecture directly as six categorical operation IDs;
 there are no configurable embedding or aggregation stages.  Values may be
 overridden either by constructing ``Config`` directly or via environment
@@ -72,9 +72,12 @@ class Config:
     # ------------------------------------------------------------- Evolution
     max_iterations: int = 30
     population_size: int = 20
-    # Keep the best floor(population_size * elite_ratio) merged candidates;
-    # fill remaining slots by binary tournament.  Must be between 0 and 1.
+    # Reserve up to floor(population_size * elite_ratio) slots for measured
+    # candidates ranked by ground truth; fill other slots by binary tournament.
     elite_ratio: float = 0.25
+    # Include unmeasured parents in the same prediction batch as offspring.
+    # Off by default to preserve the per-generation prediction workload.
+    refresh_parent_predictions: bool = False
     crossover_prob: float = 0.8
     mutation_prob: float = 0.2  # per-gene mutation rate (Table 1)
     offspring_size: int = 20  # candidate offspring generated per generation
@@ -95,6 +98,9 @@ class Config:
     # for NAS-Bench-201 (Table 4).
     query_budget: int = 100
     n_init: int = 20  # ground-truth evaluations used to seed the archive
+    # Fraction of post-initialization queries allocated to uniform exploration.
+    # Fractional slots carry across generations using cumulative actual queries.
+    query_explore_ratio: float = 1.0 / 3.0
 
     # ---------------------------------------------------------------- Runtime
     # Random seed.  Defaults to a random value so repeated runs explore different
