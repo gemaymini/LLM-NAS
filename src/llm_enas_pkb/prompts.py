@@ -186,6 +186,8 @@ def build_regression_prompt(
         "among operations. Evaluate each code as a complete cell within the fixed "
         "network described in Section 4; the effect of an operation depends on its "
         "position and the surrounding operations.",
+        "Structural similarity does not guarantee similar accuracy. Compare multiple "
+        "measured reference architectures rather than copying the value of a single neighbor.",
         "",
         "Use the observed labels to calibrate the accuracy scale and the size of "
         "predicted differences. The PKB is a selected subset of evaluated architectures, "

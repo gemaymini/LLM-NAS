@@ -26,7 +26,7 @@ reported with this variant identified.
 | NAS-Bench-201 search space (6 edges × 5 ops) | `search_space.py` | Sec. 4.1 |
 | Direct categorical encoding (6 operation IDs) | `encoder.py` | Encoding variant |
 | Executable cell/network and architecture conversion | `network.py` | NAS-Bench-201 construction |
-| Population knowledge base selection | `pkb.py` | Sec. 3.3, Alg. 2, with matching-position similarity |
+| Population knowledge base selection | `pkb.py` | Candidate coverage + global references; original Alg. 2 variant remains selectable |
 | Seven-section regression prompt | `prompts.py` | Expanded prompt variant |
 | OpenAI-compatible API client | `llm.py` | Configurable provider |
 | Regression predictor (ties the above together) | `predictor.py` | Sec. 3.2 |
@@ -181,6 +181,33 @@ NAS-Bench-201 archive for ground-truth queries.
 
 ## Key hyperparameters
 
+The default PKB strategy is **candidate-aware**: select 6 global references using
+the existing performance/diversity criteria, then fill the remaining 14 of 20
+slots by greedy coverage of the unknown prediction batch. For each candidate,
+coverage is the mean of its two highest matching-position similarities to the
+selected references; the objective averages this over distinct unknown candidates.
+Missing neighbors contribute zero. Already-measured candidate architectures do not
+receive coverage weight. If parent prediction refresh is enabled, its unmeasured
+parents participate in the same coverage objective.
+
+The six global slots rescale `k_perf:k_div` (default `10:12`) to `3:3` before
+merging, de-duplicating and filling; they are not a truncation of the original
+20-example PKB. Each subsequent example maximizes coverage gain. Ties favor
+non-redundancy to the selected references, the original combined score, then archive
+order. When all gains are zero, mean candidate similarity is the first tie-breaker.
+Small archives are kept whole; if there are no unknown candidates, selection falls
+back to the original strategy. Examples remain **architecture + measured value**;
+historical predictions and error categories are not included.
+
+Use `--pkb-strategy original` for the previous selector. Configure size with
+`--selected-size`, `--pkb-global-size`, and `--pkb-coverage-neighbors` (defaults
+20, 6, 2). A global size of zero selects only by candidate coverage; a global
+size above the available PKB size is capped. PKB diagnostics in the search log
+and `history[*]["pkb"]` record each example's source, mean/worst nearest and
+top-k similarities, and per-candidate coverage. These are structural coverage
+metrics, not prediction confidence or evidence of improved accuracy. See
+[the selection specification](docs/candidate_aware_pkb.md) for details and evaluation.
+
 Each generation refreshes predictions, queries ground truth from the merged,
 de-duplicated parent/offspring pool, and **then selects survivors once**. A new
 prediction replaces an unmeasured architecture's previous prediction, while
@@ -245,5 +272,9 @@ See [the implementation and evaluation notes](docs/prediction_error_mitigation.m
 | refresh unmeasured parent predictions | `False` | `LLMENAS_REFRESH_PARENT_PREDICTIONS` |
 | crossover prob | `0.8` | `LLMENAS_CROSSOVER_PROB` |
 | PKB `alpha` | `0.6` | `LLMENAS_ALPHA` |
+| PKB strategy | `candidate_aware` | `LLMENAS_PKB_STRATEGY` |
+| PKB size | `20` | `LLMENAS_SELECTED_SIZE` |
+| PKB global reference count | `6` | `LLMENAS_PKB_GLOBAL_SIZE` |
+| PKB coverage neighbors | `2` | `LLMENAS_PKB_COVERAGE_NEIGHBORS` |
 | query budget | `100` | `LLMENAS_QUERY_BUDGET` |
 | prompt log | `llm_prompts.log` | `LLMENAS_PROMPT_LOG_PATH` |

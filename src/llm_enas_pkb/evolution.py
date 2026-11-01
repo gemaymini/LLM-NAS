@@ -26,7 +26,7 @@ import numpy as np
 
 from .config import Config
 from .nasbench201 import NASBench201
-from .pkb import select_pkb
+from .pkb import select_pkb_for_candidates, validate_pkb_options
 from .predictor import RegressionPredictor
 from .search_log import SearchLogger
 from .search_space import NUM_EDGES, NUM_OPS
@@ -47,6 +47,11 @@ class EvolutionSearch:
         n_init = config.n_init if config.n_init and config.n_init > 0 else config.population_size
         if config.query_budget < n_init:
             raise ValueError("query_budget must cover the initial population (n_init)")
+        validate_pkb_options(
+            strategy=config.pkb_strategy, selected_size=config.selected_size,
+            global_size=config.pkb_global_size, coverage_neighbors=config.pkb_coverage_neighbors,
+            alpha=config.alpha, k_perf=config.k_perf, k_div=config.k_div,
+        )
         self.config = config
         self.bench = bench
         self.predictor = predictor
@@ -210,27 +215,40 @@ class EvolutionSearch:
             offspring = self._make_offspring(population, rng)
             candidates = list(dict.fromkeys(list(population) + offspring))
 
-            # 2. PKB from archive (Algorithm 2)
-            pkb_archs = list(archive.keys())
-            pkb_vectors = self.predictor.encoder.encode_batch(pkb_archs)
-            pkb_values = np.array([archive[a] for a in pkb_archs], dtype=np.float64)
-            pkb_idx = select_pkb(
-                pkb_vectors,
-                pkb_values,
-                alpha=cfg.alpha,
-                k_perf=cfg.k_perf,
-                k_div=cfg.k_div,
-                selected_size=cfg.selected_size,
-            )
-            pkb_selected = [pkb_archs[i] for i in pkb_idx]
-
-            # 3-4. predict offspring fitness with the LLM surrogate
+            # Determine the actual prediction batch before selecting its references.
             prediction_archs = list(offspring)
             if cfg.refresh_parent_predictions:
                 prediction_archs = list(dict.fromkeys(
                     offspring + [a for a in population if a not in archive]
                 ))
             cand_vectors = self.predictor.encoder.encode_batch(prediction_archs)
+
+            # 2. PKB from measured archive, optionally covering unknown candidates.
+            pkb_archs = list(archive.keys())
+            pkb_vectors = self.predictor.encoder.encode_batch(pkb_archs)
+            pkb_values = np.array([archive[a] for a in pkb_archs], dtype=np.float64)
+            pkb_selection = select_pkb_for_candidates(
+                pkb_vectors,
+                pkb_values,
+                cand_vectors,
+                strategy=cfg.pkb_strategy,
+                global_size=cfg.pkb_global_size,
+                coverage_neighbors=cfg.pkb_coverage_neighbors,
+                alpha=cfg.alpha,
+                k_perf=cfg.k_perf,
+                k_div=cfg.k_div,
+                selected_size=cfg.selected_size,
+            )
+            pkb_idx = pkb_selection.indices
+            pkb_selected = [pkb_archs[i] for i in pkb_idx]
+            pkb_diagnostics = {
+                "strategy": cfg.pkb_strategy, "mode": pkb_selection.mode,
+                "architectures": pkb_selected, "sources": pkb_selection.sources,
+                "coverage": pkb_selection.coverage,
+                "global_coverage": pkb_selection.global_coverage,
+            }
+
+            # 3-4. predict offspring fitness with the LLM surrogate
             prediction_values = self.predictor.predict_values(
                 pkb_vectors[pkb_idx], pkb_values[pkb_idx], cand_vectors,
                 generation=gen + 1,
@@ -295,6 +313,7 @@ class EvolutionSearch:
                     "mean_pop_valid": mean_pop_true,
                     "query_records": query_records,
                     "elites": elites,
+                    "pkb": pkb_diagnostics,
                     **survival,
                 }
             )
@@ -319,6 +338,7 @@ class EvolutionSearch:
                 elites=elites,
                 survival=survival,
                 pkb_archs=pkb_selected,
+                pkb_diagnostics=pkb_diagnostics,
                 queries=queries,
                 best_valid=archive[best_arch],
                 mean_pop_valid=mean_pop_true,

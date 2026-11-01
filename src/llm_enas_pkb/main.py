@@ -43,6 +43,11 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--k-perf", type=int, default=None)
     p.add_argument("--k-div", type=int, default=None)
     p.add_argument("--selected-size", type=int, default=None)
+    p.add_argument("--pkb-strategy", choices=["original", "candidate_aware"], default=None)
+    p.add_argument("--pkb-global-size", type=int, default=None,
+                   help="Global PKB reference slots before candidate coverage selection (default: 6)")
+    p.add_argument("--pkb-coverage-neighbors", type=int, default=None,
+                   help="Reference neighbors averaged per candidate for PKB coverage (default: 2)")
     p.add_argument("--temperature", type=float, default=None)
     p.add_argument("--top-p", type=float, default=None)
     p.add_argument("--data-path", default=None)
@@ -83,6 +88,9 @@ def main(argv: list[str] | None = None) -> int:
         "k_perf": args.k_perf,
         "k_div": args.k_div,
         "selected_size": args.selected_size,
+        "pkb_strategy": args.pkb_strategy,
+        "pkb_global_size": args.pkb_global_size,
+        "pkb_coverage_neighbors": args.pkb_coverage_neighbors,
         "temperature": args.temperature,
         "top_p": args.top_p,
         "data_path": args.data_path,

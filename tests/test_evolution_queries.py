@@ -126,6 +126,11 @@ class SearchCorrectionTests(unittest.TestCase):
         for frame in frames:
             self.assertTrue(all(a in frame["archive"] for a in frame["elites"]))
             self.assertEqual(frame["next_pop"][:len(frame["elites"])], frame["elites"])
+            # PKB uses only labels known before this generation's prediction.
+            self.assertTrue(all(a in frame["archive_before"] for a in frame["pkb_archs"]))
+            coverage = frame["pkb_diagnostics"]["coverage"]
+            self.assertTrue(all(tuple(item["architecture"]) not in frame["archive_before"]
+                                for item in coverage["per_candidate"]))
         return result, frames, predictor
 
     def test_overestimated_offspring_is_corrected_before_final_selection(self):
@@ -206,6 +211,9 @@ class SearchCorrectionTests(unittest.TestCase):
                 self.assertEqual(frames[1]["fitness"][child], 0.3 if enabled else 0.9)
                 self.assertEqual(frames[1]["prediction_generations"][child], 2 if enabled else 1)
                 self.assertEqual(frames[1]["population_fitness"][child], 0.9)
+                targets = frames[1]["pkb_diagnostics"]["coverage"]["per_candidate"]
+                self.assertEqual([item["architecture"] for item in targets],
+                                 [list(a) for a in expected])
 
     def test_query_budget_rolls_over_when_candidates_are_exhausted(self):
         p, a, b, c = ARCHS[:4]
@@ -239,6 +247,11 @@ class SearchCorrectionTests(unittest.TestCase):
             content = path.read_text()
         self.assertIn("selection_policy=measured_elites query_timing=before_selection", content)
         self.assertIn("PKB exemplars (1 selected from 1 archived)", content)
+        self.assertIn("pkb_strategy=candidate_aware selected_size=20 pkb_global_size=6", content)
+        self.assertIn("source=global", content)
+        self.assertIn("unknown_candidates=1 neighbors=2", content)
+        self.assertIn("Final PKB coverage: mean_nearest=0.8333", content)
+        self.assertIn("topk_mean=0.4167", content)
         self.assertIn("reason=exploit prediction=0.8990", content)
         self.assertIn("error=+0.1530 survived=False", content)
         self.assertIn("Ground-truth elites (1/1 protected slots)", content)

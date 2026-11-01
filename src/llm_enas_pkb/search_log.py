@@ -75,6 +75,11 @@ class SearchLogger:
                 f"refresh_parent_predictions={cfg.refresh_parent_predictions}"
             ),
             (
+                f"pkb_strategy={cfg.pkb_strategy} selected_size={cfg.selected_size} "
+                f"pkb_global_size={cfg.pkb_global_size} "
+                f"pkb_coverage_neighbors={cfg.pkb_coverage_neighbors}"
+            ),
+            (
                 "Population scores/tags are from generation start; next-population scores "
                 "are after queries. mean-pop-valid averages measured next-population members."
             ),
@@ -113,6 +118,7 @@ class SearchLogger:
         elites,
         survival,
         pkb_archs,
+        pkb_diagnostics,
         queries: int,
         best_valid: float,
         mean_pop_valid: float,
@@ -141,7 +147,26 @@ class SearchLogger:
             f"PKB exemplars ({len(pkb_archs)} selected from {len(archive_before)} archived):"
         )
         for i, a in enumerate(pkb_archs, 1):
-            lines.append(f"  {i:>3}. {self._arch(a, archive[a], 'GT')}")
+            source = pkb_diagnostics["sources"][i - 1]
+            lines.append(f"  {i:>3}. {self._arch(a, archive[a], 'GT')}  source={source}")
+        coverage = pkb_diagnostics["coverage"]
+        lines.append(
+            f"PKB selection mode={pkb_diagnostics['mode']} "
+            f"unknown_candidates={coverage['candidate_count']} neighbors={coverage['neighbors']}"
+        )
+        for label, stats in (("Global reference coverage", pkb_diagnostics["global_coverage"]),
+                             ("Final PKB coverage", coverage)):
+            if stats is not None and stats["candidate_count"]:
+                lines.append(
+                    f"{label}: mean_nearest={stats['mean_nearest']:.4f} "
+                    f"min_nearest={stats['min_nearest']:.4f} "
+                    f"mean_topk={stats['mean_topk']:.4f} min_topk={stats['min_topk']:.4f}"
+                )
+        for item in coverage["per_candidate"]:
+            lines.append(
+                f"  Coverage code={item['architecture']} nearest={item['nearest']:.4f} "
+                f"topk_mean={item['topk_mean']:.4f}"
+            )
 
         lines.append(_SUB)
         lines.append(

@@ -87,6 +87,9 @@ class Config:
     k_perf: int = 10  # top-K by combined score (K_perf)
     k_div: int = 12  # top-K by crowding distance (K_div)
     selected_size: int = 20  # final number of PKB exemplars (selected_size)
+    pkb_strategy: str = "candidate_aware"  # original | candidate_aware
+    pkb_global_size: int = 6  # global references; remaining slots cover candidates
+    pkb_coverage_neighbors: int = 2  # top-k similarities averaged per unknown candidate
 
     # ---------------------------------------------------------- NAS-Bench-201
     dataset: str = "cifar10"  # cifar10 | cifar100 | ImageNet16-120
