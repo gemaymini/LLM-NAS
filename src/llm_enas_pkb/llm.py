@@ -12,9 +12,10 @@ import logging
 import os
 import re
 import time
-from datetime import datetime
 
 import requests
+
+from .experiment_log import experiment_time
 
 logger = logging.getLogger(__name__)
 
@@ -115,7 +116,7 @@ class DeepSeekClient:
             with open(path, "a", encoding="utf-8") as fh:
                 fh.write("=" * 78 + "\n")
                 fh.write(
-                    f"[{datetime.now().isoformat(timespec='seconds')}] "
+                    f"[{experiment_time()}] "
                     f"model={self.config.model}\n"
                 )
                 for msg in messages:

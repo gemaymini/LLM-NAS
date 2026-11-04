@@ -128,6 +128,58 @@ class SearchCorrectionTests(unittest.TestCase):
             self.assertEqual(frame["next_pop"][:len(frame["elites"])], frame["elites"])
         return result, frames, predictor
 
+    def test_pkb_feedback_is_delayed_aligned_and_not_overwritten_after_query(self):
+        p, child = ARCHS[:2]
+        result, frames, predictor = self.run_search(
+            [p], [[child], [child], [child]], [[0.99], [0.01], [0.02]],
+            {p: 0.8, child: 0.7}, pkb_error_feedback=True,
+        )
+        self.assertEqual(result["queries"], 2)
+        self.assertEqual([h["pkb_feedback_count"] for h in result["history"]], [0, 1, 1])
+        calls = predictor.predict_values.call_args_list
+        self.assertEqual(calls[0].kwargs["pkb_feedback"], [None])
+        for call, frame in zip(calls[1:], frames[1:]):
+            feedback = dict(zip(frame["pkb_archs"], call.kwargs["pkb_feedback"]))
+            self.assertIsNone(feedback[p])
+            self.assertEqual(feedback[child].prediction, 0.99)
+            self.assertEqual(feedback[child].prediction_generation, 1)
+            self.assertEqual(feedback[child].query_generation, 1)
+        # Baseline does not pass feedback through the prediction API at all.
+        _, _, baseline = self.run_search([p], [[child]], [[0.99]], {p: 0.8, child: 0.7})
+        self.assertNotIn("pkb_feedback", baseline.predict_values.call_args.kwargs)
+
+    def test_pkb_feedback_records_latest_prediction_and_stale_parent_generation(self):
+        p, high, stale, other = ARCHS[:4]
+        for refresh in (False, True):
+            with self.subTest(refresh=refresh):
+                result, frames, _ = self.run_search(
+                    [p], [[high, stale], [], [other]],
+                    [[0.99, 0.95], [0.6] if refresh else [], [0.2]],
+                    {p: 0.5, high: 0.1, stale: 0.9}, population_size=3, elite_ratio=0,
+                    pkb_error_feedback=True, refresh_parent_predictions=refresh,
+                )
+                feedback = dict(zip(frames[2]["pkb_archs"], frames[2]["pkb_feedback"]))
+                self.assertEqual(feedback[stale].prediction, 0.6 if refresh else 0.95)
+                self.assertEqual(feedback[stale].prediction_generation, 2 if refresh else 1)
+                self.assertEqual(feedback[stale].query_generation, 2)
+                self.assertEqual(result["queries"], 3)
+
+    def test_feedback_log_reports_only_evidence_available_before_prediction(self):
+        p, child = ARCHS[:2]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "search.log"
+            self.run_search([p], [[child], [child]], [[0.1], [0.9]],
+                            {p: 0.8, child: 0.95}, pkb_error_feedback=True,
+                            search_log_path=str(path))
+            content = path.read_text()
+        self.assertIn("pkb_error_feedback=True", content)
+        first, second = content.split("Generation 2", 1)
+        self.assertIn("PKB feedback coverage: 0/1", first)
+        self.assertNotIn("<Historical Prediction>", first)
+        self.assertIn("PKB feedback coverage: 1/2", second)
+        self.assertIn("<Historical Prediction>: 0.100000", second)
+        self.assertIn("<Prediction Error>: -0.850000; <Direction>: underestimated", second)
+
     def test_overestimated_offspring_is_corrected_before_final_selection(self):
         p, child = ARCHS[:2]
         result, frames, _ = self.run_search([p], [[child]], [[0.899]], {p: 0.85, child: 0.746})

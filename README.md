@@ -181,6 +181,102 @@ NAS-Bench-201 archive for ground-truth queries.
 
 ## Key hyperparameters
 
+Every search run writes an `Experiment start` header **before initial sampling and
+ground-truth queries**. The header contains a unique experiment ID, start time in
+`Asia/Shanghai` (`UTC+08:00`), algorithm name, and a JSON snapshot of all effective
+`Config` fields after environment/CLI overrides, including the current run's seed
+and log paths. It is appended to both enabled search and prompt logs and emitted
+at INFO level to the console. Each repeated run gets its own header, including
+when multiple runs share a log file. API key environment-variable names are
+recorded, but their secret values are not read or logged. Random search records
+the same metadata in its search log. The start timestamp marks entry into the
+search algorithm; shared benchmark loading in the CLI happens beforehand.
+
+### Architecture parameter and FLOPs features
+
+By default, both PKB exemplars and candidate rows include `<Params>` and `<FLOPs>`
+alongside their six-ID codes. Counts come from the entire instantiated network
+using PyTorch meta tensors (shape-only execution, no training, GPU allocation,
+benchmark labels, or random initialization draws). An in-process bounded cache
+reuses counts for repeated codes with the same dataset, width, depth and profiling
+mode. No additional dependencies are required.
+
+- `Params`: trainable scalar parameters, including BatchNorm affine parameters and
+  classifier bias, excluding buffers.
+- `FLOPs`: **Conv2d + Linear only**, batch size 1, inference, **2 FLOPs per MAC**.
+  Inputs are RGB 32×32 for CIFAR and 16×16 for ImageNet16-120. Bias additions, BN,
+  activations, pooling, elementwise sums and zero operations are excluded. This
+  is a consistent compute proxy, not total operation count or measured latency.
+  Executed convolutions on zero/disconnected branches are counted without pruning.
+
+Use `--architecture-features {none,params,flops,both}` or
+`LLMENAS_ARCHITECTURE_FEATURES` (default `both`). Explicit CLI settings override the
+environment. `none` restores the previous prompt and skips profiling. PKB selection,
+query budgets and search policy stay the same. Offline k-NN and API-response fallback
+ignore these features; offline runs validate integration, not improved accuracy.
+Historical PKB error feedback can be enabled independently.
+
+```bash
+uv run llm-enas-pkb --dataset cifar10 --seed 42 --architecture-features both
+# Baseline / individual-feature ablations:
+uv run llm-enas-pkb --dataset cifar10 --seed 42 --architecture-features none
+uv run llm-enas-pkb --dataset cifar10 --seed 42 --architecture-features params
+uv run llm-enas-pkb --dataset cifar10 --seed 42 --architecture-features flops
+```
+
+Prompts describe the counting convention and warn against assuming that larger
+networks are always more accurate. Search logs include the mode, protocol and row
+counts; automatically named prompt/search logs include the feature mode. See the
+[implementation and four-group evaluation protocol](docs/architecture_features.md).
+
+### PKB over/underestimation feedback experiment
+
+`--pkb-error-feedback` annotates the existing selected PKB rows with the latest
+prediction made **before** their first ground-truth query, signed error
+(`prediction - truth`), direction, prediction generation, and query generation.
+It defaults to off; `--no-pkb-error-feedback` explicitly disables it, including
+when `LLMENAS_PKB_ERROR_FEEDBACK=true` is set in the environment.
+
+The PKB selector, exemplar count, query policy, and fitness rules are unchanged.
+Initial labels have no error annotation. Newly measured feedback can only enter
+the next generation's prompt, if its architecture is selected into that PKB.
+Later predictions of already measured architectures never replace this evidence.
+Each run starts with an empty feedback archive. With no available feedback, the
+prompt is identical to the baseline. Offline k-NN and fallback predictions ignore
+these annotations, so offline runs only check the pipeline, not feedback efficacy.
+
+```bash
+# Matched seeds 42..51; run both with identical model/data/search settings.
+uv run llm-enas-pkb --dataset cifar10 --seed 42 --run 10 --architecture-features none --no-pkb-error-feedback
+uv run llm-enas-pkb --dataset cifar10 --seed 42 --run 10 --architecture-features none --pkb-error-feedback
+```
+
+Search logs include the switch, per-row feedback, and `PKB feedback coverage`;
+returned history includes `pkb_feedback_count`. See the
+[experiment protocol](docs/pkb_error_feedback.md) for separate log directories,
+comparison metrics, and interpretation limits.
+
+### Final result logs
+
+Both `llm-enas-pkb` and `random-search` save a separate summary log after all
+requested runs finish. By default, a unique `summary_*.log` is created beside the
+search log (in the current directory when search logging is disabled). The
+terminal prints its absolute path as `summary log`.
+
+Each run records its seed, best architecture, `best valid`, `best test`, query
+count, and search-log path. With `--run N` where N > 1, `average (mean)` records
+the mean validation/test accuracy and sample standard deviation across runs
+(`ddof=1`). Accuracies are percentages with six decimal places in this file;
+the existing terminal summary remains unchanged.
+
+Use `--summary-log-path logs/cifar100/results.log` to append completed batches
+to a chosen file; missing parent directories are created automatically. The
+equivalent environment variable is `LLMENAS_SUMMARY_LOG_PATH`. An empty value
+disables the summary log. The summary path must differ from search/prompt paths.
+This applies to future runs and does not backfill existing search logs.
+
+### Search policy
+
 Each generation refreshes predictions, queries ground truth from the merged,
 de-duplicated parent/offspring pool, and **then selects survivors once**. A new
 prediction replaces an unmeasured architecture's previous prediction, while
@@ -238,6 +334,7 @@ See [the implementation and evaluation notes](docs/prediction_error_mitigation.m
 | temperature | `0.3` | `LLMENAS_TEMPERATURE` |
 | top_p | `0.8` | `LLMENAS_TOP_P` |
 | architecture code | 6 categorical IDs in `0..4` | Fixed by the search space |
+| architecture features | `both` (`none`, `params`, `flops`, `both`) | `LLMENAS_ARCHITECTURE_FEATURES` |
 | iterations | `30` | `LLMENAS_MAX_ITERATIONS` |
 | population size | `20` | `LLMENAS_POPULATION_SIZE` |
 | elite ratio | `0.25` | `LLMENAS_ELITE_RATIO` |
@@ -245,5 +342,6 @@ See [the implementation and evaluation notes](docs/prediction_error_mitigation.m
 | refresh unmeasured parent predictions | `False` | `LLMENAS_REFRESH_PARENT_PREDICTIONS` |
 | crossover prob | `0.8` | `LLMENAS_CROSSOVER_PROB` |
 | PKB `alpha` | `0.6` | `LLMENAS_ALPHA` |
+| PKB prediction-error feedback | `False` | `LLMENAS_PKB_ERROR_FEEDBACK` |
 | query budget | `100` | `LLMENAS_QUERY_BUDGET` |
 | prompt log | `llm_prompts.log` | `LLMENAS_PROMPT_LOG_PATH` |

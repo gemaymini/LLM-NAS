@@ -16,10 +16,12 @@ import logging
 
 import numpy as np
 
+from .architecture_cost import validate_feature_mode
 from .categorical import categorical_similarity_matrix, validate_architecture_vectors
 from .config import Config
 from .encoder import ArchitectureInformationEncoder
 from .llm import DeepSeekClient, DeepSeekError, _extract_json_object
+from .pkb import PredictionFeedback
 from .prompts import build_regression_prompt
 
 logger = logging.getLogger(__name__)
@@ -34,6 +36,7 @@ class RegressionPredictor:
         encoder: ArchitectureInformationEncoder | None = None,
     ):
         self.config = config
+        validate_feature_mode(config.architecture_features)
         self.encoder = encoder or ArchitectureInformationEncoder()
         # In offline mode there is no API client; the k-NN surrogate is used instead.
         self.client = None if config.offline else DeepSeekClient(config)
@@ -46,6 +49,7 @@ class RegressionPredictor:
         candidate_vectors: np.ndarray,
         *,
         generation: int | None = None,
+        pkb_feedback: list[PredictionFeedback | None] | None = None,
     ) -> np.ndarray:
         """Predict a value in [0, 1] for each candidate, given PKB exemplars.
 
@@ -67,6 +71,8 @@ class RegressionPredictor:
             candidate_vectors,
             dataset=self.config.dataset,
             generation=generation,
+            pkb_feedback=pkb_feedback if self.config.pkb_error_feedback else None,
+            architecture_features=self.config.architecture_features,
         )
         if self.config.offline:
             preds = self._offline_predict(pkb_vectors, pkb_values, candidate_vectors)
@@ -110,6 +116,7 @@ class RegressionPredictor:
         pkb_values,
         *,
         generation: int | None = None,
+        pkb_feedback: list[PredictionFeedback | None] | None = None,
     ) -> np.ndarray:
         """Convenience wrapper: encode architectures, then ``predict_values``."""
         pkb_vecs = self.encoder.encode_batch(pkb_archs)
@@ -119,6 +126,7 @@ class RegressionPredictor:
             np.asarray(pkb_values, dtype=np.float64),
             cand_vecs,
             generation=generation,
+            pkb_feedback=pkb_feedback,
         )
 
     # -------------------------------------------------------------- helpers

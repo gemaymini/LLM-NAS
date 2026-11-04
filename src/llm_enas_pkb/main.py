@@ -8,8 +8,10 @@ import os
 import statistics
 import sys
 
+from .architecture_cost import FEATURE_MODES, validate_feature_mode
 from .config import Config
 from .evolution import EvolutionSearch
+from .experiment_log import log_experiment_summary
 from .nasbench201 import NASBench201
 from .predictor import RegressionPredictor
 from .search_space import arch_to_str
@@ -43,6 +45,10 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--k-perf", type=int, default=None)
     p.add_argument("--k-div", type=int, default=None)
     p.add_argument("--selected-size", type=int, default=None)
+    p.add_argument("--pkb-error-feedback", action=argparse.BooleanOptionalAction,
+                   default=None, help="Add historical over/underestimation information to PKB rows")
+    p.add_argument("--architecture-features", choices=FEATURE_MODES, default=None,
+                   help="Network costs in PKB/candidate prompts (default: both)")
     p.add_argument("--temperature", type=float, default=None)
     p.add_argument("--top-p", type=float, default=None)
     p.add_argument("--data-path", default=None)
@@ -59,6 +65,8 @@ def _build_parser() -> argparse.ArgumentParser:
                    help="Append LLM prompts/responses to this file (empty string disables)")
     p.add_argument("--search-log-path", default=None,
                    help="Append per-generation search log to this file (empty string disables)")
+    p.add_argument("--summary-log-path", default=None,
+                   help="Append final batch results to this file (default: new summary log; empty disables)")
     return p
 
 
@@ -83,6 +91,8 @@ def main(argv: list[str] | None = None) -> int:
         "k_perf": args.k_perf,
         "k_div": args.k_div,
         "selected_size": args.selected_size,
+        "pkb_error_feedback": args.pkb_error_feedback,
+        "architecture_features": args.architecture_features,
         "temperature": args.temperature,
         "top_p": args.top_p,
         "data_path": args.data_path,
@@ -90,6 +100,7 @@ def main(argv: list[str] | None = None) -> int:
         "log_level": args.log_level,
         "prompt_log_path": args.prompt_log_path,
         "search_log_path": args.search_log_path,
+        "summary_log_path": args.summary_log_path,
         "reasoning_effort": args.reasoning_effort,
     }
     for name, value in overrides.items():
@@ -101,6 +112,7 @@ def main(argv: list[str] | None = None) -> int:
         cfg.offline = True
     if args.thinking:
         cfg.thinking = True
+    validate_feature_mode(cfg.architecture_features)
 
     # If the prompt-log path was not explicitly set (via CLI or env), auto-generate
     # a timestamped, hyperparameter-tagged filename so separate runs don't share one
@@ -149,6 +161,7 @@ def main(argv: list[str] | None = None) -> int:
                 "best_test": result["best_test"],
                 "queries": result["queries"],
                 "best_arch": result["best_arch"],
+                "search_log_path": cfg.search_log_path,
             }
         )
 
@@ -157,6 +170,8 @@ def main(argv: list[str] | None = None) -> int:
     print("LLM-ENAS-PKB (regression) — NAS-Bench-201 /", cfg.dataset)
     print("=" * 60)
     print(f"model           : {cfg.model}" + ("  [OFFLINE]" if cfg.offline else ""))
+    print(f"PKB error feedback: {cfg.pkb_error_feedback}")
+    print(f"architecture features: {cfg.architecture_features}")
     if num_runs > 1:
         print(f"runs            : {num_runs} (one seed each)")
         print("-" * 60)
@@ -185,6 +200,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"best test acc   : {r['best_test'] * 100:.2f}%")
         print(f"queries used    : {r['queries']} / {cfg.query_budget}")
     print("=" * 60)
+    summary_path = log_experiment_summary(cfg, rows, algorithm="llm-enas-pkb")
+    if summary_path is not None:
+        print(f"summary log     : {summary_path}")
     return 0
 
 

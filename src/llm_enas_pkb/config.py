@@ -42,9 +42,11 @@ class Config:
     # (reasoning) and "deepseek-flash" (fast); the former is the drop-in
     # replacement for the paper's reasoning model.
     # model: str = "deepseek-v4-pro"
-    model: str = "DeepSeek-V4-Pro-0813"
+    # model: str = "DeepSeek-V4-Pro-0813"
+    model: str = "deepseek-v4.1-flash"
     # api_base: str = "https://api.deepseek.com"
-    api_base: str = "https://llmapi.paratera.com"
+    # api_base: str = "https://llmapi.paratera.com"
+    api_base: str = "https://token0001.com/v1"
     # OpenAI-compatible base URL; the client appends ``/chat/completions``.
     # Name of the environment variable holding the DeepSeek API key.
     api_key_env: str = ""
@@ -87,6 +89,11 @@ class Config:
     k_perf: int = 10  # top-K by combined score (K_perf)
     k_div: int = 12  # top-K by crowding distance (K_div)
     selected_size: int = 20  # final number of PKB exemplars (selected_size)
+    # Annotate the same PKB exemplars with historical pre-query prediction errors.
+    pkb_error_feedback: bool = False
+    # Label-free full-network costs shown on both PKB and candidate rows.
+    # none | params | flops | both; offline k-NN does not use these features.
+    architecture_features: str = "both"
 
     # ---------------------------------------------------------- NAS-Bench-201
     dataset: str = "cifar10"  # cifar10 | cifar100 | ImageNet16-120
@@ -122,6 +129,9 @@ class Config:
     # or None disables it.  ``main`` auto-generates a timestamped filename when it
     # is not explicitly set, mirroring ``prompt_log_path``.
     search_log_path: str | None = "search.log"
+    # Batch results: None generates a separate file beside the search log;
+    # an explicit path appends results there, and an empty string disables it.
+    summary_log_path: str | None = None
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -173,6 +183,7 @@ class Config:
         ts = datetime.now().strftime("%Y%m%d-%H%M%S")
         return (
             f"llm_prompts_{self.dataset}_{self.model}"
+            f"_features{self.architecture_features}"
             f"_it{self.max_iterations}_pop{self.population_size}_seed{self.seed}_{ts}.log"
         )
 
@@ -186,5 +197,6 @@ class Config:
         ts = datetime.now().strftime("%Y%m%d-%H%M%S")
         return (
             f"search_{self.dataset}_{self.model}"
+            f"_features{self.architecture_features}"
             f"_it{self.max_iterations}_pop{self.population_size}_seed{self.seed}_{ts}.log"
         )

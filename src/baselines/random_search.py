@@ -24,6 +24,11 @@ from datetime import datetime
 import numpy as np
 
 from llm_enas_pkb.config import Config
+from llm_enas_pkb.experiment_log import (
+    experiment_time,
+    log_experiment_start,
+    log_experiment_summary,
+)
 from llm_enas_pkb.nasbench201 import NASBench201
 from llm_enas_pkb.search_space import arch_to_str
 
@@ -63,7 +68,7 @@ class RandomSearch:
             "\n".join(
                 [
                     _SEP,
-                    f"[{datetime.now().isoformat(timespec='seconds')}] Random-search baseline start",
+                    f"[{experiment_time()}] Random-search initial sample ready",
                     (
                         f"dataset={cfg.dataset} seed={cfg.seed} "
                         f"query_budget={cfg.query_budget} sampled={budget}"
@@ -82,6 +87,7 @@ class RandomSearch:
     # ------------------------------------------------------------ main loop
     def run(self) -> dict:
         cfg = self.config
+        log_experiment_start(cfg, algorithm="random-search", include_prompt_log=False)
         # Seeded RNG makes the sequence of sampled architectures reproducible.
         rng = np.random.default_rng(cfg.seed)
         # Cap the sample count at the search-space size so ``bench.sample`` cannot
@@ -150,6 +156,8 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Append per-evaluation search log to this file (empty string disables)",
     )
+    p.add_argument("--summary-log-path", default=None,
+                   help="Append final batch results to this file (default: new summary log; empty disables)")
     return p
 
 
@@ -165,6 +173,7 @@ def main(argv: list[str] | None = None) -> int:
         "seed": args.seed,
         "log_level": args.log_level,
         "search_log_path": args.search_log_path,
+        "summary_log_path": args.summary_log_path,
     }
     for name, value in overrides.items():
         if value is not None:
@@ -203,6 +212,7 @@ def main(argv: list[str] | None = None) -> int:
                 "best_test": result["best_test"],
                 "queries": result["queries"],
                 "best_arch": result["best_arch"],
+                "search_log_path": cfg.search_log_path,
             }
         )
 
@@ -239,6 +249,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"best test acc   : {r['best_test'] * 100:.2f}%")
         print(f"queries used    : {r['queries']} / {cfg.query_budget}")
     print("=" * 60)
+    summary_path = log_experiment_summary(cfg, rows, algorithm="random-search")
+    if summary_path is not None:
+        print(f"summary log     : {summary_path}")
     return 0
 
 

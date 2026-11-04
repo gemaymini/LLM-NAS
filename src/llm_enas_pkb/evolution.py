@@ -26,7 +26,7 @@ import numpy as np
 
 from .config import Config
 from .nasbench201 import NASBench201
-from .pkb import select_pkb
+from .pkb import PredictionFeedback, select_pkb
 from .predictor import RegressionPredictor
 from .search_log import SearchLogger
 from .search_space import NUM_EDGES, NUM_OPS
@@ -169,6 +169,8 @@ class EvolutionSearch:
     # ------------------------------------------------------------ main loop
     def run(self) -> dict:
         cfg = self.config
+        search_log = SearchLogger(cfg)
+        search_log.log_start()
         # Seeded RNG makes the entire evolutionary trajectory reproducible.
         rng = np.random.default_rng(cfg.seed)
         logger.info("seed=%d (pass --seed to reproduce this run)", cfg.seed)
@@ -178,6 +180,7 @@ class EvolutionSearch:
         archive: dict[tuple[int, ...], float] = {}
         fitness: dict[tuple[int, ...], float] = {}
         prediction_generations: dict[tuple[int, ...], int] = {}
+        feedback_archive: dict[tuple[int, ...], PredictionFeedback] = {}
 
         # Seed the initial population and pay the ground-truth cost for each.
         n_init = cfg.n_init if cfg.n_init and cfg.n_init > 0 else cfg.population_size
@@ -197,7 +200,6 @@ class EvolutionSearch:
         # yields fewer new members than its quota, the unspent queries roll into
         # the next generation automatically.
 
-        search_log = SearchLogger(cfg)
         search_log.log_header(population, fitness)
 
         history: list[dict] = []
@@ -223,6 +225,9 @@ class EvolutionSearch:
                 selected_size=cfg.selected_size,
             )
             pkb_selected = [pkb_archs[i] for i in pkb_idx]
+            pkb_feedback = ([feedback_archive.get(a) for a in pkb_selected]
+                            if cfg.pkb_error_feedback else None)
+            feedback_count = sum(entry is not None for entry in (pkb_feedback or []))
 
             # 3-4. predict offspring fitness with the LLM surrogate
             prediction_archs = list(offspring)
@@ -234,6 +239,7 @@ class EvolutionSearch:
             prediction_values = self.predictor.predict_values(
                 pkb_vectors[pkb_idx], pkb_values[pkb_idx], cand_vectors,
                 generation=gen + 1,
+                **({"pkb_feedback": pkb_feedback} if cfg.pkb_error_feedback else {}),
             )
             predictions = dict(zip(prediction_archs, map(float, prediction_values)))
             preds = [predictions[a] for a in offspring]
@@ -258,6 +264,10 @@ class EvolutionSearch:
             for a, reason in query_plan:
                 prediction = fitness[a]
                 v = self.bench.valid_acc(a)
+                if cfg.pkb_error_feedback:
+                    feedback_archive[a] = PredictionFeedback(
+                        prediction, prediction_generations[a], gen + 1,
+                    )
                 query_records.append({
                     "arch": a, "reason": reason, "prediction": prediction,
                     "prediction_generation": prediction_generations[a],
@@ -294,6 +304,7 @@ class EvolutionSearch:
                     "best_valid": archive[best_arch],
                     "mean_pop_valid": mean_pop_true,
                     "query_records": query_records,
+                    "pkb_feedback_count": feedback_count,
                     "elites": elites,
                     **survival,
                 }
@@ -319,6 +330,7 @@ class EvolutionSearch:
                 elites=elites,
                 survival=survival,
                 pkb_archs=pkb_selected,
+                pkb_feedback=pkb_feedback,
                 queries=queries,
                 best_valid=archive[best_arch],
                 mean_pop_valid=mean_pop_true,

@@ -13,9 +13,45 @@ subset to inject into the LLM prompt:
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import numpy as np
 
 from .categorical import categorical_similarity_matrix, validate_architecture_vectors
+
+
+@dataclass(frozen=True)
+class PredictionFeedback:
+    """Latest prediction made before an architecture's first truth query.
+
+    Keep this immutable once measured: later predictions can already have seen
+    the label and must never replace this out-of-sample observation.
+    """
+
+    prediction: float
+    prediction_generation: int
+    query_generation: int
+
+    def __post_init__(self):
+        if not np.isfinite(self.prediction) or not 0 <= self.prediction <= 1:
+            raise ValueError("Historical prediction must be finite and in [0, 1]")
+        for value in (self.prediction_generation, self.query_generation):
+            if isinstance(value, bool) or not isinstance(value, (int, np.integer)) or value < 1:
+                raise ValueError("Feedback generations must be positive integers")
+        if self.prediction_generation > self.query_generation:
+            raise ValueError("Historical prediction cannot follow its truth query")
+
+    def describe(self, truth: float) -> str:
+        # Match the prompt's six-decimal accuracy precision; avoid signed zero
+        # or classifying sub-precision numerical noise as a directional error.
+        error = round(float(self.prediction), 6) - round(float(truth), 6)
+        direction = "overestimated" if error > 0 else "underestimated" if error < 0 else "matched"
+        return (
+            f"<Historical Prediction>: {self.prediction:.6f}; "
+            f"<Prediction Error>: {error:+.6f}; <Direction>: {direction}; "
+            f"<Prediction Generation>: {self.prediction_generation}; "
+            f"<Query Generation>: {self.query_generation};"
+        )
 
 
 def normalize_performance(values: np.ndarray) -> np.ndarray:

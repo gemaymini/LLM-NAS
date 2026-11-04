@@ -23,9 +23,10 @@ real time (``tail -f``) and survives a kill; write failures are non-fatal
 from __future__ import annotations
 
 import logging
-from datetime import datetime
 
+from .architecture_cost import feature_description, format_architecture_features
 from .config import Config
+from .experiment_log import experiment_time, log_experiment_start
 from .search_space import arch_to_str
 
 logger = logging.getLogger(__name__)
@@ -51,18 +52,27 @@ class SearchLogger:
         except OSError as exc:
             logger.warning("Failed to write search log %s: %s", self.path, exc)
 
-    @staticmethod
-    def _arch(arch, value, tag: str) -> str:
+    def _arch(self, arch, value, tag: str) -> str:
         """Render the direct six-ID code, official string, and tagged fitness."""
-        return f"code={list(arch)}  {arch_to_str(arch)}  val={float(value):.4f}  [{tag}]"
+        row = f"code={list(arch)}  {arch_to_str(arch)}"
+        features = format_architecture_features(
+            arch, dataset=self.config.dataset, mode=self.config.architecture_features,
+        )
+        return row + ("  " + features if features else "") + f"  val={float(value):.4f}  [{tag}]"
 
     # ------------------------------------------------------------ sections
+    def log_start(self) -> None:
+        """Persist settings and start time before initialization can fail."""
+        log_experiment_start(self.config, algorithm="LLM-ENAS-PKB")
+
     def log_header(self, population, fitness) -> None:
         """Record the run's config and the ground-truth-seeded initial population."""
+        if not self.path:
+            return
         cfg = self.config
         lines = [
             _SEP,
-            f"[{datetime.now().isoformat(timespec='seconds')}] Search start",
+            f"[{experiment_time()}] Initial population ready",
             (
                 f"dataset={cfg.dataset} model={cfg.model} seed={cfg.seed} "
                 f"iterations={cfg.max_iterations} pop={cfg.population_size} "
@@ -74,6 +84,8 @@ class SearchLogger:
                 f"query_explore_ratio={cfg.query_explore_ratio} "
                 f"refresh_parent_predictions={cfg.refresh_parent_predictions}"
             ),
+            f"pkb_error_feedback={cfg.pkb_error_feedback}",
+            f"architecture_features={cfg.architecture_features}",
             (
                 "Population scores/tags are from generation start; next-population scores "
                 "are after queries. mean-pop-valid averages measured next-population members."
@@ -89,6 +101,8 @@ class SearchLogger:
             _SUB,
             f"Initial population (seeded, {len(population)} individuals, all ground-truth queried):",
         ]
+        if cfg.architecture_features != "none":
+            lines.insert(-2, feature_description(cfg.architecture_features, cfg.dataset))
         for i, a in enumerate(population, 1):
             lines.append(f"  {i:>3}. {self._arch(a, fitness[a], 'GT')}")
         lines.append(_SUB)
@@ -116,13 +130,16 @@ class SearchLogger:
         queries: int,
         best_valid: float,
         mean_pop_valid: float,
+        pkb_feedback=None,
     ) -> None:
         """Record one generation's full search state (see module docstring)."""
+        if not self.path:
+            return
         cfg = self.config
         lines = [
             _SEP,
             (
-                f"[{datetime.now().isoformat(timespec='seconds')}] "
+                f"[{experiment_time()}] "
                 f"Generation {generation} | queries {queries}/{cfg.query_budget} | "
                 f"best-valid {best_valid:.4f} | mean-pop-valid {mean_pop_valid:.4f}"
             ),
@@ -141,7 +158,12 @@ class SearchLogger:
             f"PKB exemplars ({len(pkb_archs)} selected from {len(archive_before)} archived):"
         )
         for i, a in enumerate(pkb_archs, 1):
-            lines.append(f"  {i:>3}. {self._arch(a, archive[a], 'GT')}")
+            entry = pkb_feedback[i - 1] if pkb_feedback is not None else None
+            detail = " " + entry.describe(archive_before[a]) if entry is not None else ""
+            lines.append(f"  {i:>3}. {self._arch(a, archive_before[a], 'GT')}{detail}")
+        if pkb_feedback is not None:
+            lines.append(f"PKB feedback coverage: {sum(e is not None for e in pkb_feedback)}"
+                         f"/{len(pkb_archs)}")
 
         lines.append(_SUB)
         lines.append(

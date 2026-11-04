@@ -9,7 +9,13 @@ from importlib.resources import files
 
 import numpy as np
 
+from .architecture_cost import (
+    feature_description,
+    format_architecture_features,
+    validate_feature_mode,
+)
 from .categorical import validate_architecture_vectors
+from .pkb import PredictionFeedback
 from .search_space import EDGES, OPS
 
 _VALUE_PRECISION = 6
@@ -53,8 +59,11 @@ def build_regression_prompt(
     *,
     dataset: str = "cifar10",
     generation: int | None = None,
+    pkb_feedback: list[PredictionFeedback | None] | None = None,
+    architecture_features: str = "both",
 ) -> str:
     """Describe the space and predict (M,) accuracies from (N, 6)/(M, 6) codes."""
+    validate_feature_mode(architecture_features)
     pkb = validate_architecture_vectors(pkb_vectors)
     candidates = validate_architecture_vectors(candidate_vectors)
     values = np.asarray(pkb_values, dtype=np.float64)
@@ -69,6 +78,16 @@ def build_regression_prompt(
         or generation < 1
     ):
         raise ValueError("Generation must be a positive integer when provided")
+    feedback = [None] * len(pkb) if pkb_feedback is None else list(pkb_feedback)
+    if len(feedback) != len(pkb):
+        raise ValueError("Expected one feedback entry per PKB row")
+    for entry in feedback:
+        if entry is None:
+            continue
+        if not isinstance(entry, PredictionFeedback):
+            raise ValueError("PKB feedback entries must be PredictionFeedback or None")
+        if generation is not None and entry.query_generation >= generation:
+            raise ValueError("PKB feedback must come from an earlier search generation")
 
     classes, image_size = _DATASETS[dataset]
     op_code, network_code = _reference_code()
@@ -209,14 +228,44 @@ def build_regression_prompt(
         "",
         "Population Knowledge Base (measured validation accuracy):",
     ])
-    for i, (code, value) in enumerate(zip(pkb, values), 1):
-        lines.append(f"PKB {i}: <Architecture Code>: {json.dumps(code.tolist())}; "
-                     f"<Value>: {float(value):.{_VALUE_PRECISION}f};")
+    if architecture_features != "none":
+        lines.extend(["", feature_description(architecture_features, dataset), "",
+                      "Both PKB and candidate rows include the enabled architecture features.", ""])
+    if any(entry is not None for entry in feedback):
+        lines.extend([
+            "",
+            "Some PKB rows also include historical surrogate feedback. Historical Prediction "
+            "is the latest estimate made before that architecture's first ground-truth query. "
+            "Prediction Error = Historical Prediction - measured Value, on the same [0, 1] "
+            "accuracy scale: +0.02 means overestimated by 2 percentage points, and -0.02 "
+            "means underestimated by 2 percentage points. Direction is based on the displayed "
+            "six-decimal values; matched means equal at that precision. Prediction Generation "
+            "and Query Generation identify when the estimate and its verification occurred.",
+            "Use these past errors as calibration evidence when comparing similar structures. "
+            "The measured Value remains the regression label. Do not copy the historical "
+            "prediction or mechanically apply its error to every candidate. These are selected "
+            "observations from earlier generations, not proof of a universal structural bias. "
+            "Missing feedback means no pre-query prediction is available, not zero error.",
+            "",
+        ])
+    for i, (code, value, entry) in enumerate(zip(pkb, values, feedback), 1):
+        row = (f"PKB {i}: <Architecture Code>: {json.dumps(code.tolist())}; "
+               f"<Value>: {float(value):.{_VALUE_PRECISION}f};")
+        features = format_architecture_features(code, dataset=dataset, mode=architecture_features)
+        if features:
+            row += " " + features
+        if entry is not None:
+            row += " " + entry.describe(float(value))
+        lines.append(row)
     if not len(pkb):
         lines.append("(No measured labels are available.)")
     lines.extend(["", "Candidate Architectures (predict in this order):"])
     for i, code in enumerate(candidates, 1):
-        lines.append(f"Candidate {i}: <Architecture Code>: {json.dumps(code.tolist())}; <Value>: ;")
+        row = f"Candidate {i}: <Architecture Code>: {json.dumps(code.tolist())}; <Value>: ;"
+        features = format_architecture_features(code, dataset=dataset, mode=architecture_features)
+        if features:
+            row += " " + features
+        lines.append(row)
     lines.extend([
         "",
         "7. Constraints",
