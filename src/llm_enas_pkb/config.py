@@ -40,9 +40,11 @@ class Config:
     # (reasoning) and "deepseek-flash" (fast); the former is the drop-in
     # replacement for the paper's reasoning model.
     # model: str = "deepseek-v4-pro"
-    model: str = "DeepSeek-V4-Pro-0813"
+    # model: str = "DeepSeek-V4-Pro-0813"
+    model: str = "deepseek-v4.1-flash"
     # api_base: str = "https://api.deepseek.com"
-    api_base: str = "https://llmapi.paratera.com"
+    # api_base: str = "https://llmapi.paratera.com"
+    api_base: str = "https://token0001.com/v1"
     # OpenAI-compatible base URL; the client appends ``/chat/completions``.
     # Name of the environment variable holding the DeepSeek API key.
     api_key_env: str = ""
